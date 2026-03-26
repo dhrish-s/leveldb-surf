@@ -1,5 +1,5 @@
 # LevelDB Source Reading Notes
-# Week 1 Part B
+# Week 1 Part B — CSCI-543 Project 2
 # Read all 8 source files before writing any code
 
 ---
@@ -739,4 +739,338 @@ Week 4 — Benchmarking:
     Change NewBloomFilterPolicy(10) to NewSuRFFilterPolicy()
   RUN: db_bench seekrandom, YCSB Workload E
   COMPARE: before vs after SuRF numbers
+```
+
+---
+
+## CRITICAL GAPS — Must Know Before Coding
+
+---
+
+### GAP 1 — Offset → Filter Index Mapping
+
+**The exact formula:**
+```
+filter_index = block_offset >> base_lg_
+```
+
+`>>` means right shift. Right shifting by 11 is the same as dividing by 2048.
+
+**Why right shift instead of divide?**
+Bit shifting is faster than integer division on a CPU. Same result, cheaper operation.
+
+**Derive it yourself:**
+```
+base_lg_ = 11
+kFilterBase = 2^11 = 2048
+
+block_offset = 4096
+filter_index = 4096 >> 11 = 4096 / 2048 = 2
+→ use mini-filter number 2
+
+block_offset = 6144
+filter_index = 6144 >> 11 = 6144 / 2048 = 3
+→ use mini-filter number 3
+
+block_offset = 0
+filter_index = 0 >> 11 = 0
+→ use mini-filter number 0
+```
+
+**Practice question — answer instantly:**
+```
+Given: block_offset = 4096, base_lg_ = 11
+Which filter is used?
+
+Answer: 4096 >> 11 = 2 → mini-filter number 2
+```
+
+---
+
+### GAP 2 — Filter Block Layout On Disk
+
+**Draw this from memory:**
+```
+┌──────────────┬──────────────┬──────────────┬──────────────────┬──────────────┬─────────┐
+│  filter 0    │  filter 1    │  filter 2    │  offset table    │array_offset  │base_lg_ │
+│  (variable   │  (variable   │  (variable   │  [4 bytes each]  │  (4 bytes)   │(1 byte) │
+│   size)      │   size)      │   size)      │                  │              │  = 11   │
+└──────────────┴──────────────┴──────────────┴──────────────────┴──────────────┴─────────┘
+↑                                            ↑                  ↑              ↑
+data_                                     offset_          array_offset    last byte
+```
+
+**Why stored from the end — 2 reasons:**
+
+1. Filter sizes are variable — you cannot know where the offset table starts
+   until all filters are written. So you write filters first, then the table.
+
+2. The reader always knows the total size of the block. So it reads from
+   the END backwards — last byte = base_lg_, 4 bytes before = array_offset,
+   then jump to array_offset to find the offset table.
+
+**How the constructor decodes it — step by step:**
+```cpp
+size_t n = contents.size();
+
+Step 1: base_lg_ = contents[n - 1]
+        → last byte = 11
+
+Step 2: last_word = DecodeFixed32(contents.data() + n - 5)
+        → 4 bytes before last byte = array_offset
+        → this is where the offset table starts
+
+Step 3: data_   = contents.data()
+        → pointer to very start of block (filter 0 starts here)
+
+Step 4: offset_ = data_ + last_word
+        → pointer to start of offset table
+
+Step 5: num_ = (n - 5 - last_word) / 4
+        → (total bytes - 5 footer bytes - offset table start) / 4 bytes each
+        → = number of entries in offset table = number of mini-filters
+```
+
+**How KeyMayMatch finds the right filter:**
+```
+index  = block_offset >> base_lg_          → which filter number
+start  = DecodeFixed32(offset_ + index*4)  → where filter starts
+limit  = DecodeFixed32(offset_ + index*4 + 4) → where filter ends
+filter = Slice(data_ + start, limit - start)  → the actual filter bytes
+return policy_->KeyMayMatch(key, filter)
+```
+
+---
+
+### GAP 3 — InternalFilterPolicy (Critical Detail)
+
+**What it is:**
+A wrapper around your filter that strips internal key bytes.
+
+**The problem it solves:**
+LevelDB internally stores every key with 8 extra bytes appended:
+```
+User key:     "cat"
+Internal key: "cat" + [7-byte sequence number] + [1-byte type]
+              = "cat\x01\x00\x00\x00\x00\x00\x00\x01"
+```
+
+The sequence number is LevelDB's version counter (MVCC). The type byte says
+whether this is a value or a tombstone.
+
+**Your filter NEVER sees internal keys. Only user keys.**
+
+```
+InternalFilterPolicy::CreateFilter(internal_keys, n, dst)
+    strips internal bytes from each key
+    calls user_policy_->CreateFilter(user_keys, n, dst)
+                                     ↑
+                               YOUR SuRFPolicy receives CLEAN keys
+                               just "cat", not "cat\x01\x00\x00..."
+
+InternalFilterPolicy::KeyMayMatch(internal_key, filter)
+    strips: user_key = ExtractUserKey(internal_key)
+    calls:  user_policy_->KeyMayMatch(user_key, filter)
+                                      ↑
+                               YOUR SuRFPolicy receives CLEAN key
+```
+
+**For your RangeMayMatch(lo, hi) — same rule:**
+The lo and hi passed to your function will already be clean user keys.
+You do NOT need to strip anything yourself.
+InternalFilterPolicy handles it before your code is called.
+
+**Why this matters:**
+If you accidentally tried to handle internal keys yourself and did it wrong,
+your filter would fail to find keys. Data loss. Always remember:
+your SuRFPolicy only ever deals with clean user keys.
+
+---
+
+### GAP 4 — Exact Location of RangeMayMatch Hook
+
+**This flow must be crystal clear:**
+
+```
+User calls: db->NewIterator() or range scan
+
+    │
+    ▼
+Version::AddIterators()                    [version_set.cc]
+  For each SSTable in each level:
+  Coarse check: does file range [smallest, largest] overlap [lo, hi]?
+  If NO  → skip (already handled by FileMetaData)
+  If YES → pass to next step
+    │
+    ▼
+NewConcatenatingIterator()                 [version_set.cc]
+  Creates TwoLevelIterator with:
+    outer = LevelFileNumIterator
+    inner = GetFileIterator
+    │
+    ▼
+GetFileIterator()                          [version_set.cc]
+  Called by TwoLevelIterator for each file
+  Currently: calls TableCache::NewIterator() unconditionally
+  YOUR CHANGE: pass [lo, hi] through to next step
+    │
+    ▼
+TableCache::NewIterator()                  [table_cache.cc]
+  ◄── YOUR RANGEMAYMATCH CHECK GOES HERE
+  BEFORE FindTable() is called:
+    if RangeMayMatch(lo, hi, file_filter) == false
+        return NewEmptyIterator()  ← zero disk I/O, nothing opened
+  If true:
+    │
+    ▼
+  FindTable()                              [table_cache.cc]
+    cache hit  → fast (memory only)
+    cache miss → Table::Open() → disk I/O (slow)
+    │
+    ▼
+  table->NewIterator()                     [table.cc]
+    returns iterator over SSTable keys
+```
+
+**The threading problem:**
+To pass [lo, hi] from `AddIterators()` all the way to `TableCache::NewIterator()`,
+you must change function signatures in multiple files:
+
+```
+AddIterators(options, iters)
+  → needs lo, hi added: AddIterators(options, lo, hi, iters)
+
+NewConcatenatingIterator(options, level)
+  → needs lo, hi added: NewConcatenatingIterator(options, lo, hi, level)
+
+GetFileIterator(arg, options, file_value)
+  → needs lo, hi somehow (passed via arg struct or ReadOptions extension)
+
+TableCache::NewIterator(options, file_number, file_size)
+  → needs lo, hi added: NewIterator(options, lo, hi, file_number, file_size)
+```
+
+This is why the project takes weeks — not because the logic is hard,
+but because threading parameters through existing code requires careful changes.
+
+---
+
+### GAP 5 — The Safety Rule (Burn This In)
+
+**For KeyMayMatch:**
+```
+false → MUST be correct. Key is DEFINITELY NOT here. No exceptions.
+true  → CAN be wrong. Key might or might not be here. Fine.
+```
+
+**For RangeMayMatch:**
+```
+false → MUST be correct. NO key in [lo, hi] is DEFINITELY NOT here. No exceptions.
+true  → CAN be wrong. Some key in [lo, hi] might or might not be here. Fine.
+```
+
+**False negative = data loss. Never acceptable.**
+If your RangeMayMatch returns false when a key IS in range:
+  - LevelDB skips the SSTable
+  - Never finds the key
+  - Returns NotFound to the user
+  - The data exists on disk but is invisible
+  - No error, no crash, just silent wrong answer
+  - This is catastrophic and very hard to debug
+
+**False positive = performance cost only. Always acceptable.**
+If your RangeMayMatch returns true when NO key is in range:
+  - LevelDB opens the SSTable anyway
+  - Scans through it
+  - Finds nothing
+  - Returns correct empty result to user
+  - Just wasted some time, no correctness issue
+
+**The implication for your default implementation:**
+```cpp
+virtual bool RangeMayMatch(const Slice& lo, const Slice& hi,
+                           const Slice& filter) const {
+    return true;  // ← safest possible default
+}
+```
+Returning true always = never skip anything = no false negatives = correct.
+Just not fast. Safety first, then optimize.
+
+---
+
+### THE DEEPEST INSIGHT — Filters Are NOT For Correctness
+
+This is the most important thing to understand about the entire filter system.
+
+**Filters are purely a performance optimization.**
+
+```
+Without any filter:
+  LevelDB opens every candidate SSTable
+  Reads every data block
+  Returns correct answers
+  Just SLOW
+
+With a perfect filter:
+  LevelDB skips most SSTables
+  Reads fewer data blocks
+  Returns correct answers
+  FAST
+
+With a broken filter (false negatives):
+  LevelDB skips SSTables it should not skip
+  Misses data
+  Returns WRONG answers
+  CATASTROPHIC
+
+With a broken filter (false positives only):
+  LevelDB opens extra SSTables it could have skipped
+  Does extra work
+  Returns correct answers
+  Slightly SLOW (but correct)
+```
+
+**The practical consequence:**
+If you are debugging and your SuRF filter has a bug — the first question is:
+"Am I getting wrong answers or just slow answers?"
+
+Wrong answers → you have a false negative → your RangeMayMatch is returning
+false when it should return true. Go fix the filter logic.
+
+Slow answers → you might have too many false positives → your filter is
+not pruning enough SSTables. Go tune the false positive rate.
+
+Correct and fast → your filter is working perfectly.
+
+---
+
+### Quick Recall Test — Answer These Instantly
+
+```
+Q1: Given block_offset=4096, base_lg_=11. Which filter index?
+A:  4096 >> 11 = 2
+
+Q2: What are the last 5 bytes of a filter block on disk?
+A:  [array_offset: 4 bytes][base_lg_: 1 byte]
+
+Q3: Does your SuRFPolicy ever see internal keys?
+A:  No. InternalFilterPolicy strips them. You only see user keys.
+
+Q4: Where exactly does RangeMayMatch check go?
+A:  TableCache::NewIterator(), BEFORE FindTable() is called.
+
+Q5: Can RangeMayMatch return true incorrectly?
+A:  Yes. False positive = performance cost only. Acceptable.
+
+Q6: Can RangeMayMatch return false incorrectly?
+A:  NEVER. False negative = data loss. Catastrophic.
+
+Q7: Why can Bloom not answer range queries?
+A:  BloomHash() converts keys to numbers — destroys all ordering.
+    "ant" and "zebra" become unrelated numbers.
+    No way to say "any key between bear and fox?"
+    SuRF keeps ordering in the trie. Bloom throws it away.
+
+Q8: If your filter is completely removed from the code, what happens?
+A:  LevelDB still works correctly. Just slower. Filters are performance only.
 ```
