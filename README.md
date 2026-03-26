@@ -1,6 +1,7 @@
 # LevelDB + SuRF: Range Query Filter Extension
-**Contributors:** Jahnavi Manoj · Dhrish Kumar Suman ·
+**Team:** Jahnavi Manoj · Dhrish Kumar Suman
 **University:** University of Southern California
+**Repository:** github.com/dhrish-s/leveldb-surf
 
 ---
 
@@ -19,26 +20,31 @@ This means when you run a range scan, LevelDB opens every SSTable whose key-rang
 ```
 leveldb-surf/
 │
-├── Dockerfile                  # Builds the complete dev environment
-├── docker-compose.yml          # Container config with volume mounts
-├── .gitattributes              # Enforces LF line endings (critical for Windows)
-├── .gitignore                  # Excludes compiled files and benchmark databases
-├── README.md                   # This file
+├── Dockerfile                    # Builds the complete dev environment
+├── docker-compose.yml            # Container config with volume mounts
+├── .gitattributes                # Enforces LF line endings (critical for Windows)
+├── .gitignore                    # Excludes compiled files and benchmark databases
+├── README.md                     # This file
 │
 ├── .vscode/
-│   └── settings.json           # VS Code settings (LF endings, C++ format)
+│   └── settings.json             # VS Code settings (LF endings, C++ format)
 │
-├── project/                    # YOUR CODE LIVES HERE
-│   └── (empty until Week 2 — code files go here as you write them)
+├── project/
+│   ├── notes/
+│   │   └── source_reading_notes.md  # Deep notes on all 8 source files (1076 lines)
+│   └── demos/                    # Individual demo files (added in Week 1 Part D)
+│       ├── d01_open_close.cc
+│       ├── d02_put.cc
+│       └── ...
 │
 └── benchmarks/
-    ├── rebuild.sh              # Compile and test after every code change
-    ├── baseline_benchmark.sh   # Capture before-SuRF performance numbers
-    └── baseline/               # Created after running baseline benchmarks
-        ├── seekrandom.txt      # KEY BASELINE NUMBER — save this
-        ├── readrandom.txt
-        ├── readseq.txt
-        └── fillrandom.txt
+    ├── rebuild.sh                # Compile and test after every code change
+    ├── baseline_benchmark.sh     # Capture before-SuRF performance numbers
+    └── baseline/                 # Baseline results (captured Week 1 Part C)
+        ├── seekrandom.txt        # 4.317 micros/op — KEY BEFORE NUMBER
+        ├── readrandom.txt        # 3.691 micros/op
+        ├── readseq.txt           # 0.213 micros/op
+        └── fillrandom.txt        # 3.953 micros/op
 ```
 
 ---
@@ -67,32 +73,26 @@ Git on Windows has `autocrlf=true` by default — it silently converts line endi
 
 ## The Dockerfile — Step by Step
 
-The Dockerfile builds the entire environment from scratch. Here is what each step does and why.
-
 ```
 FROM ubuntu:22.04
 ```
-We pin to Ubuntu 22.04 (not `latest`) because it ships g++ 11 (C++17 support, required by SuRF) and cmake 3.22 (LevelDB requires 3.9+). Pinning prevents the build from breaking when Ubuntu releases a new version.
+Pinned to Ubuntu 22.04 for g++ 11 (C++17, required by SuRF) and cmake 3.22 (LevelDB requires 3.9+).
 
 ```
 RUN apt-get update && apt-get install -y build-essential cmake git ...
 ```
-Installs the compiler (g++), build system (cmake), version control (git), and debugging tools (gdb, valgrind) in one layer to keep the image size smaller.
+Installs compiler, build system, version control, and debugging tools in one layer.
 
 ```
 RUN git clone --recurse-submodules https://github.com/google/leveldb.git
 ```
-Clones the full LevelDB source. `--recurse-submodules` is critical — without it, `third_party/googletest/` is empty and the test build fails.
+`--recurse-submodules` is critical — without it `third_party/googletest/` is empty and tests fail.
 
 ```
 RUN git clone https://github.com/efficient/SuRF.git
+RUN cp -r /workspace/SuRF/include/* /workspace/leveldb/include/surf/
 ```
-Clones the official SuRF C++ implementation from the paper authors (SIGMOD 2018).
-
-```
-RUN mkdir -p /workspace/leveldb/include/surf && cp -r /workspace/SuRF/include/* ...
-```
-Copies SuRF headers into LevelDB's include tree so your code can write `#include "surf/surf.hpp"` without extra compiler flags.
+Clones SuRF from the paper authors and copies headers into LevelDB's include tree so `#include "surf/surf.hpp"` works without extra flags.
 
 ```
 RUN cd /workspace/leveldb && \
@@ -100,61 +100,50 @@ RUN cd /workspace/leveldb && \
     printf '// placeholder\n' > util/surf_filter.cc && \
     cmake ... && cmake --build . --parallel 4
 ```
-Three things happen atomically in one RUN command:
-1. **sed patches CMakeLists.txt** — adds `surf_filter.cc` to the list of files cmake compiles. Without this, your implementation is silently ignored and you get a linker error.
-2. **printf creates a placeholder** — cmake requires the file to physically exist at build time. We create an empty placeholder so cmake succeeds. `rebuild.sh` will overwrite it with your real code.
-3. **cmake builds LevelDB** — compiles all source files including the placeholder. Produces `libleveldb.a`, `leveldb_tests`, and `db_bench`.
+Three things in ONE RUN command (critical — must be atomic):
+1. `sed` patches CMakeLists.txt to include `surf_filter.cc`
+2. Creates empty placeholder so cmake can find the file
+3. Compiles everything including the placeholder
 
-This was combined into one RUN because having them as separate RUN commands caused Docker to cache an intermediate layer where the placeholder was missing, causing cmake to fail with `Cannot find source file: util/surf_filter.cc`.
+Combined into one RUN because separate RUN commands caused Docker layer caching to miss the placeholder, causing `Cannot find source file: util/surf_filter.cc`.
 
 ```
 RUN /workspace/leveldb/build/leveldb_tests
 ```
-Runs all 211 LevelDB tests during image build. If any fail, the image build fails. This guarantees your environment is correct before you write a single line of code.
-
-**Build result: 210 tests passed, 1 skipped (zstd compression — expected, not installed).**
-
----
-
-## Volume Mounts — How Files Flow
-
-```
-Your Windows Laptop                    Docker Container
-─────────────────────                  ─────────────────
-surf-leveldb-project/
-  project/          ←──── live sync ────→  /workspace/project/
-  benchmarks/       ←──── live sync ────→  /workspace/benchmarks/
-```
-
-You create and edit files in `project/` on your laptop using VS Code. They appear instantly inside the container at `/workspace/project/`. When `rebuild.sh` runs, it copies those files into LevelDB's source tree and recompiles.
-
-Benchmark results written inside the container appear in `benchmarks/` on your laptop, so they survive if the container is stopped or deleted.
+Runs all 211 tests during image build. **Result: 210 pass, 1 skipped (zstd — expected).**
 
 ---
 
 ## Daily Workflow
 
-**Every day when you sit down:**
-
+**Every day when you sit down (after a reboot):**
 ```powershell
-# On Windows — start the container
+cd "path"
 docker compose up -d
 docker exec -it leveldb-surf bash
 ```
 
-**After any code change (inside the container):**
+**If container is already running (no reboot):**
+```powershell
+docker exec -it leveldb-surf bash
+```
 
+**Attach VS Code to the container:**
+1. Open VS Code
+2. Click the green `><` button bottom-left
+3. Select "Attach to Running Container"
+4. Select `leveldb-surf`
+5. VS Code terminal is now inside Linux — no more switching
+
+**After any code change (inside container terminal):**
 ```bash
 bash /workspace/benchmarks/rebuild.sh
 ```
 
-This copies your files → compiles → runs all tests. Takes 10-30 seconds.
-
-**After work session — commit and push (on Windows):**
-
+**After a work session (on Windows):**
 ```powershell
-git add project/your_changed_file.cc
-git commit -m "Week 2: implement SuRFPolicy::CreateFilter"
+git add project/your_file.cc
+git commit -m "Week X: description of what you did"
 git push origin main
 ```
 
@@ -163,20 +152,119 @@ git push origin main
 ## What `rebuild.sh` Does
 
 ```
-Step 1: Copies files from /workspace/project/ into LevelDB source tree
-        surf_filter.h      → include/leveldb/
-        surf_filter.cc     → util/
-        filter_policy.h    → include/leveldb/
-        filter_block.cc    → table/
-        table.cc           → table/
+Step 1: Copy files from /workspace/project/ into LevelDB source tree
+        surf_filter.h         → include/leveldb/
+        surf_filter.cc        → util/
+        filter_policy.h       → include/leveldb/
+        filter_block.cc       → table/
+        table.cc              → table/
         two_level_iterator.cc → table/
-        table_cache.cc     → db/
-        version_set.cc     → db/
+        table_cache.cc        → db/
+        version_set.cc        → db/
 
 Step 2: cmake --build (incremental — only recompiles changed files)
 
-Step 3: ./leveldb_tests (all original tests must keep passing)
+Step 3: ./leveldb_tests — ALL original tests must keep passing
 ```
+
+---
+
+## LevelDB Source — What Each File Does
+
+This section documents every source file we studied in Week 1. Understanding these files is required before writing any code.
+
+### `include/leveldb/filter_policy.h` — The Contract
+The abstract interface every filter must implement. Defines 3 methods:
+- `Name()` — returns filter name, stored in SSTable, must match on read or filter is ignored
+- `CreateFilter(keys, n, dst)` — builds filter from n sorted keys, appends bytes to dst
+- `KeyMayMatch(key, filter)` — returns false = definitely absent, true = maybe present
+
+**We add a 4th method:**
+- `RangeMayMatch(lo, hi, filter)` — returns false = no key in [lo,hi], true = maybe has keys
+
+Currently `RangeMayMatch` has **0 grep results** across the entire codebase. That zero is the entire project.
+
+### `util/bloom.cc` — The Existing Filter (We Replace This)
+Implements Bloom filter using a bit array and double-hashing.
+- `CreateFilter`: hashes each key k times (k = bits_per_key × 0.69), sets those bits ON
+- `KeyMayMatch`: hashes query key same way, checks if all k bits are ON
+- **Critical flaw for ranges**: `BloomHash()` destroys all key ordering. "ant" and "zebra" become unrelated numbers. Cannot answer "any key between bear and fox?"
+
+### `table/filter_block.h` + `filter_block.cc` — The 2KB Problem
+`FilterBlockBuilder` builds the filter during compaction. `FilterBlockReader` reads it during lookups.
+
+**The 2KB problem (Challenge 1):**
+```
+kFilterBaseLg = 11 → kFilterBase = 2^11 = 2048 bytes = 2KB
+GenerateFilter() is called every 2KB of data → many mini-filters per SSTable
+SuRF needs ALL keys at once to build one valid trie
+```
+
+**On-disk filter block layout:**
+```
+[filter 0][filter 1][filter 2]...[offset table][array_offset][base_lg=11]
+                                                              ↑ last byte
+```
+Constructor reads from END backwards: last byte = base_lg, 4 bytes before = array_offset.
+
+**Filter lookup:** `filter_index = block_offset >> base_lg_` (= block_offset / 2048)
+
+**What we change in Week 2:**
+Stop calling `GenerateFilter()` at every 2KB boundary. Buffer ALL keys. Call `CreateFilter()` once in `Finish()`.
+
+### `table/table_builder.cc` — Write Path (4 Lines That Matter)
+Builds one complete SSTable from scratch. Only 4 lines touch the filter:
+1. Constructor: `new FilterBlockBuilder(opt.filter_policy)` — plug-in point
+2. `Add()`: `filter_block->AddKey(key)` — key given to filter before data block flush
+3. `Flush()`: `filter_block->StartBlock(offset)` — triggers GenerateFilter() at 2KB
+4. `Finish()`: `filter_block->Finish()` + stores `filter_policy->Name()` in metaindex
+
+**We do not change this file.** Only `FilterBlockBuilder` changes.
+
+### `table/table.cc` — Read Path (The Gap We Fill)
+Librarian who opens and reads an SSTable.
+- `Table::Open()`: reads footer → index → filter into memory
+- `ReadMeta()`: looks for `"filter." + policy->Name()`. Name mismatch = filter silently ignored
+- `InternalGet()` line 225: `filter->KeyMayMatch()` — **point queries already optimized**
+- `NewIterator()`: creates TwoLevelIterator — **NO filter check for range scans** ← gap we fill
+
+### `db/version_set.cc` — The Library Directory
+Tracks all SSTables across all 7 levels (Level 0–6).
+- `FileMetaData`: every SSTable has `smallest` and `largest` key — the coarse filter
+- `AddIterators()`: creates iterators for all candidate SSTables — **our hook location**
+- `LevelFileNumIterator`: walks through SSTable file list (outer iterator)
+- `GetFileIterator()`: opens one SSTable (currently unconditional — no filter check)
+
+**Two-level filtering:**
+- Coarse (already exists): skip if file range [smallest, largest] doesn't overlap query
+- Fine (we add): `RangeMayMatch(lo, hi)` — skip if no actual key in [lo, hi]
+
+### `db/table_cache.cc` — The SSTable Cache (Our Hook Point)
+LRU cache of open SSTable files. Opening from disk is slow; cache makes repeat access fast.
+- `FindTable()`: cache hit = fast (memory), cache miss = `Table::Open()` (disk I/O)
+- `NewIterator()` — **OUR EXACT HOOK POINT**:
+  ```
+  BEFORE FindTable() is called:
+  if RangeMayMatch(lo, hi) == false → return empty iterator (zero disk I/O)
+  ```
+
+**The threading problem (Challenge 2):**
+The query range `[lo, hi]` must be threaded through:
+```
+AddIterators(lo, hi)
+  → NewConcatenatingIterator(lo, hi)
+    → GetFileIterator(lo, hi)
+      → TableCache::NewIterator(lo, hi)
+        → RangeMayMatch check BEFORE FindTable()
+```
+This requires changing function signatures across multiple files — the main engineering challenge of the project.
+
+### `InternalFilterPolicy` — The Hidden Wrapper
+Defined in `db/dbformat.cc`. Wraps your filter and strips internal key bytes before calling it.
+
+LevelDB stores keys internally as: `"cat" + [7-byte sequence number] + [1-byte type]`
+
+`InternalFilterPolicy` strips the extra 8 bytes. **Your SuRFPolicy always receives clean user keys.** You never handle internal key format. This applies to `CreateFilter`, `KeyMayMatch`, and `RangeMayMatch`.
 
 ---
 
@@ -184,109 +272,206 @@ Step 3: ./leveldb_tests (all original tests must keep passing)
 
 ### The Problem in Detail
 
-When a range query `[lo, hi]` runs, LevelDB uses coarse metadata (smallest/largest key per SSTable) to skip obviously irrelevant files. But for files whose key range *overlaps* the query range, LevelDB must open them — even if no actual key falls within `[lo, hi]`. This is wasted disk I/O.
+When a range query `[lo, hi]` runs:
+1. **Coarse check** (already exists): skip SSTables whose `[smallest, largest]` doesn't overlap `[lo, hi]`
+2. **Fine check** (missing): for SSTables that pass the coarse check, are there *actual* keys in `[lo, hi]`?
 
-Example: SSTable B has keys `dog → jaguar`. Query is `elk → hippo`. LevelDB opens SSTable B. But if SSTable B only contains `dog, fox, iguana, jaguar` — none of which are between `elk` and `hippo` — opening it was pure waste. A Bloom filter cannot detect this because it only handles point queries.
+Example:
+```
+SSTable B: smallest=bear, largest=hippo → passes coarse check
+Actual keys in SSTable B: bear, cat, elephant (none between dog and fox)
+Query: [dog, fox]
+Without SuRF: LevelDB opens SSTable B, scans, finds nothing. Wasted I/O.
+With SuRF:    RangeMayMatch("dog","fox") → false → skip SSTable B entirely
+```
 
 ### The Solution — SuRF
 
-SuRF (Succinct Range Filter) is built on a Fast Succinct Trie (FST). A trie is a tree where each branch represents a character of a key. Given keys `dog, fox, iguana, jaguar`, SuRF builds a compressed bit-array representation of this trie. To answer "any key between `elk` and `hippo`?", it navigates the trie to find the successor of `elk`. If that successor is greater than `hippo`, the answer is no — skip the SSTable. This check uses ~10 bits per key and runs in microseconds.
+SuRF builds a compressed trie from all keys. To answer "any key in [elk, hippo]?", it finds the successor of "elk" in the trie. If that successor > "hippo" — answer is no. Uses ~10 bits per key.
 
 ### Files We Modify
 
-| File | What Changes |
-|------|-------------|
-| `include/leveldb/filter_policy.h` | Add `RangeMayMatch(lo, hi, filter)` method |
-| `util/bloom.cc` → `util/surf_filter.cc` | Replace Bloom with SuRF implementation |
-| `table/filter_block.cc` | Buffer ALL keys per SSTable instead of per 2KB chunk |
-| `table/table.cc` | Consult filter before scanning data blocks |
-| `table/two_level_iterator.cc` | Thread query range down to filter check |
-| `db/version_set.cc` | Pass query range into iterator construction |
-| `db/table_cache.cc` | Call `RangeMayMatch` before opening SSTable |
+| File | Change | Week |
+|---|---|---|
+| `include/leveldb/filter_policy.h` | Add `RangeMayMatch()` with default `return true` | 2 |
+| `util/surf_filter.cc` | New file: SuRFPolicy implementing all 4 methods | 2 |
+| `table/filter_block.cc` | Buffer all keys, call `CreateFilter()` once in `Finish()` | 2 |
+| `db/table_cache.cc` | Check `RangeMayMatch` before `FindTable()` in `NewIterator()` | 3 |
+| `db/version_set.cc` | Thread `[lo, hi]` from `AddIterators()` down | 3 |
+| `table/two_level_iterator.cc` | Pass range bounds to inner iterator | 3 |
+| `benchmarks/db_bench.cc` | Change to `NewSuRFFilterPolicy()` at line 523 | 4 |
 
-### The Call Chain (Read Path)
+### The Read Path — Range Scan
 
 ```
 DB::NewIterator()
-  └── Version::AddIterators()          [version_set.cc]
-        └── TwoLevelIterator           [two_level_iterator.cc]
-              └── TableCache::NewIterator()  [table_cache.cc]
-                    └── RangeMayMatch(lo, hi)  ← NEW: skip if false
-                          └── Table::NewIterator()  [table.cc]
-                                └── FilterBlockReader → SuRFPolicy
+  └── Version::AddIterators()             [version_set.cc]
+        coarse check: FileMetaData min/max
+        └── NewConcatenatingIterator()
+              └── TwoLevelIterator
+                    outer: LevelFileNumIterator (walks file list)
+                    inner: GetFileIterator()
+                             └── TableCache::NewIterator()   [table_cache.cc]
+                                   ← RangeMayMatch(lo,hi) CHECK HERE
+                                   false → return empty iterator
+                                   true  → FindTable() → open SSTable
+                                             └── Table::NewIterator()  [table.cc]
 ```
 
-### The Call Chain (Write Path / Compaction)
+### The Write Path — Filter Build During Compaction
 
 ```
 DoCompactionWork()
   └── BuildTable()
-        └── TableBuilder::Add(key, value)  [table_builder.cc]
-              └── FilterBlockBuilder::AddKey(key)  ← buffer ALL keys
-                    └── [at SSTable finish] SuRFPolicy::CreateFilter(all_keys)
-                          └── SuRF built and serialized to filter block
+        └── TableBuilder::Add(key, value)      [table_builder.cc]
+              └── FilterBlockBuilder::AddKey()  [filter_block.cc]
+                    buffers key (Week 2: buffer ALL keys instead of 2KB chunks)
+              when SSTable done:
+              └── TableBuilder::Finish()
+                    └── FilterBlockBuilder::Finish()
+                          └── SuRFPolicy::CreateFilter(ALL keys)  [surf_filter.cc]
+                                builds SuRF trie → serializes → appends to result_
+```
+
+### The Safety Rule
+
+```
+KeyMayMatch / RangeMayMatch:
+  false → MUST be correct. Definitely absent. Never lie here.
+  true  → CAN be wrong. False positives are acceptable (just slower).
+
+False negative = data loss = catastrophic = never acceptable
+False positive = extra disk read = acceptable
+
+Filters are PERFORMANCE ONLY — not correctness.
+Remove the filter entirely: LevelDB still works, just slower.
 ```
 
 ---
 
-## Project Timeline
+## Baseline Benchmarks — Before SuRF
 
-| Week | Goal |
-|------|------|
-| 1 | Study LevelDB source: `filter_policy.h`, `bloom.cc`, `filter_block.cc`, `table.cc`, `two_level_iterator.cc`, `version_set.cc`, `table_cache.cc` |
-| 2 | Implement `SuRFPolicy::CreateFilter()` and `KeyMayMatch()`. Modify `FilterBlockBuilder` to buffer all keys |
-| 3 | Integrate `RangeMayMatch()` into the iterator stack. Correctness tests and fuzz testing |
-| 4 | Run YCSB Workload E and db_bench at 1GB and 10GB. Collect metrics |
-| 5 | Analyze results. Write report with latency graphs and I/O reduction numbers |
-| 6 | Finalize report. Prepare presentation |
+Captured: March 26, 2026 — 1 million keys, 16-byte keys, 100-byte values.
+
+```
+┌──────────────┬────────────────┬──────────────────────────────────┐
+│ Benchmark    │ Result         │ Expected After SuRF              │
+├──────────────┼────────────────┼──────────────────────────────────┤
+│ seekrandom   │ 4.317 µs/op   │ ~2.0–3.5 µs/op (20–50% faster)  │
+│ readrandom   │ 3.691 µs/op   │ ~3.691 µs/op (unchanged)         │
+│ readseq      │ 0.213 µs/op   │ ~0.213 µs/op (unchanged)         │
+│ fillrandom   │ 3.953 µs/op   │ ~4.2–4.8 µs/op (10–20% slower)  │
+└──────────────┴────────────────┴──────────────────────────────────┘
+```
+
+**Key insight:** `seekrandom (4.317) > readrandom (3.691)` by 0.626 µs/op.
+That gap = wasted SSTable opens during forward scan after seek.
+SuRF's `RangeMayMatch()` eliminates those wasted opens.
+
+**Why each number is what it is:**
+- `readseq (0.213)` — fastest because keys are read in order, OS prefetch helps, no random jumps
+- `readrandom (3.691)` — 17x slower because each key is in a different SSTable, random disk seeks
+- `seekrandom (4.317)` — slightly slower than readrandom because after seeking it scans forward, opening multiple SSTables per operation
+- `fillrandom (3.953)` — writes go to memory buffer first, then flush to disk during compaction
+
+---
+
+## Project Timeline — Detailed
+
+### Week 1 — Study and Baseline ✅ COMPLETE
+- Read all 8 source files — notes in `project/notes/source_reading_notes.md`
+- Captured baseline benchmarks — results in `benchmarks/baseline/`
+- Hands-on demos D1–D12 (in progress)
+
+### Week 2 — Implement SuRFPolicy
+Files to create/modify:
+```
+NEW:    util/surf_filter.cc
+          SuRFPolicy::Name()           → "leveldb.SuRFFilter"
+          SuRFPolicy::CreateFilter()   → build SuRF trie, serialize to bytes
+          SuRFPolicy::KeyMayMatch()    → lookup exact key in trie
+          SuRFPolicy::RangeMayMatch()  → lookup key range in trie
+
+MODIFY: include/leveldb/filter_policy.h
+          add: virtual bool RangeMayMatch(lo, hi, filter) const { return true; }
+
+MODIFY: table/filter_block.cc
+          stop calling GenerateFilter() at 2KB boundaries
+          buffer ALL keys, call CreateFilter() once in Finish()
+```
+Test: all 210 original tests must still pass.
+
+### Week 3 — Wire Into Range Scan Path
+Files to modify:
+```
+MODIFY: db/table_cache.cc
+          add RangeMayMatch check before FindTable() in NewIterator()
+
+MODIFY: db/version_set.cc
+          thread [lo, hi] from AddIterators() → GetFileIterator()
+
+MODIFY: table/two_level_iterator.cc
+          pass range bounds to inner iterator creation
+```
+Test: write range scan correctness tests. Run fuzz tests.
+
+### Week 4 — Benchmarking
+```
+MODIFY: benchmarks/db_bench.cc line 523
+          change: NewBloomFilterPolicy(10)
+          to:     NewSuRFFilterPolicy()
+
+RUN: seekrandom, YCSB Workload E
+     at 1M keys and 10M keys
+     Uniform and Zipfian distributions
+
+COLLECT:
+  - Range scan latency (p50, p95, p99)
+  - SSTables skipped per query
+  - Disk I/O bytes read
+  - Filter false positive rate
+  - Filter memory footprint
+  - Write throughput change
+```
+
+### Week 5 — Analysis and Report
+- Compare before/after numbers
+- Draw latency graphs and I/O reduction charts
+- Calculate % improvement in seekrandom
+
+### Week 6 — Presentation
+- Final report
+- Demo: live seekrandom comparison Bloom vs SuRF
 
 ---
 
 ## Key Concepts Glossary
 
-**LSM-tree** — Log-Structured Merge Tree. LevelDB's storage engine. Writes go to memory first, then flush to disk as sorted immutable files (SSTables).
+**LSM-tree** — Log-Structured Merge Tree. Writes go to memory first, then flush to sorted immutable files (SSTables) on disk.
 
-**SSTable** — Sorted String Table. An immutable sorted file on disk. Contains a data section, an index, and a filter block.
+**SSTable** — Sorted String Table. Immutable file on disk. Contains data blocks, index block, and filter block.
 
-**Bloom filter** — A probabilistic data structure that answers "is key X possibly here?" using a bit array and hash functions. Cannot answer range queries.
+**Bloom filter** — Bit array + hash functions. Answers "is key X possibly here?" Cannot answer range queries because hashing destroys key ordering.
 
-**SuRF** — Succinct Range Filter. Built on a Fast Succinct Trie. Can answer "does any key in [lo, hi] exist here?" in ~10 bits per key.
+**SuRF** — Succinct Range Filter. Compressed trie (FST). Answers "does any key in [lo, hi] exist here?" using ~10 bits per key.
 
-**FST** — Fast Succinct Trie. The compressed bit-array representation of a trie that SuRF uses internally.
+**FST** — Fast Succinct Trie. The compressed bit-array form of a trie that SuRF uses internally.
 
-**Compaction** — Background process where LevelDB merges and re-sorts SSTables. This is where filters are built (write path).
+**Compaction** — Background process that merges and re-sorts SSTables. This is when `CreateFilter()` is called and filters are built.
 
-**FilterPolicy** — LevelDB's plugin interface for filters. Has methods `Name()`, `CreateFilter()`, `KeyMayMatch()`. We add `RangeMayMatch()`.
+**FilterPolicy** — LevelDB's plug-in interface. `Name()`, `CreateFilter()`, `KeyMayMatch()`, `RangeMayMatch()` (we add).
 
-**False positive** — Filter says "might have data" when it doesn't. Acceptable (just opens SSTable unnecessarily, finds nothing, moves on).
+**InternalFilterPolicy** — Hidden wrapper that strips internal key bytes (sequence number + type) before calling your filter. Your code always receives clean user keys.
 
-**False negative** — Filter says "definitely no data" when there is data. **Catastrophic — data loss. Must never happen.**
+**False positive** — Filter says "might have data" when it doesn't. Acceptable — just extra disk read.
 
-**Point query** — "Does key X exist?" Bloom filter handles this.
+**False negative** — Filter says "definitely no data" when there is data. Catastrophic — silent data loss. Must never happen.
 
-**Range query** — "Do any keys between X and Y exist?" SuRF handles this. Bloom filter cannot.
+**2KB problem** — FilterBlockBuilder calls `CreateFilter()` every 2KB of data, creating many mini-filters per SSTable. SuRF needs all keys at once. We fix this in Week 2.
 
----
+**Threading problem** — The query range `[lo, hi]` must be passed through 4 function call layers to reach the `RangeMayMatch()` check. Requires changing function signatures in multiple files.
 
-## Benchmark Plan
-
-**Tool 1: db_bench** (built into LevelDB)
-- `seekrandom` — seeks to random positions, scans forward. Closest to a range scan.
-- `readrandom` — random point reads. Should be unchanged by our modification.
-- `fillrandom` — write throughput. We must verify SuRF does not hurt this significantly.
-
-**Tool 2: YCSB Workload E** (set up in Week 4)
-- 95% range scans, 5% inserts. Directly stresses what we are improving.
-
-**Dataset:** 1M keys (16-byte keys, 100-byte values) and 10M keys. Uniform and Zipfian distributions.
-
-**Metrics to collect:**
-- Range scan latency (p50, p95, p99 microseconds)
-- Number of SSTables skipped per query
-- Disk I/O bytes read
-- Filter false positive rate
-- Filter memory footprint
-- Write throughput and compaction overhead
+**micros/op** — Microseconds per operation. 1 microsecond = 0.000001 seconds. Smaller = faster.
 
 ---
 
@@ -294,12 +479,14 @@ DoCompactionWork()
 
 - [x] SSH key generated and added to GitHub
 - [x] Repository created at `github.com/dhrish-s/leveldb-surf`
-- [x] All 7 setup files committed and pushed
-- [x] Docker image built successfully
-- [x] 210/211 LevelDB tests pass (1 skipped — zstd compression, expected)
-- [ ] Baseline benchmarks captured (next step)
-- [ ] Week 1: Read and understand LevelDB source files
-- [ ] Week 2: Implement SuRFPolicy
+- [x] Docker image built — 210/211 tests pass (1 skipped: zstd, expected)
+- [x] All setup files committed and pushed
+- [x] VS Code attached to container
+- [x] Part B: All 8 source files read — notes in `project/notes/source_reading_notes.md`
+- [x] Part C: Baseline benchmarks captured — seekrandom **4.317 µs/op**
+- [ ] Part D: Hands-on demos D1–D12
+- [ ] Part E: Combined demo file
+- [ ] Week 2: SuRFPolicy implementation
 - [ ] Week 3: Range scan integration
 - [ ] Week 4: Benchmarking
 - [ ] Week 5: Analysis and report
