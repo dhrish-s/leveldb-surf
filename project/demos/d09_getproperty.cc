@@ -5,8 +5,8 @@ int main()
 {
   leveldb::Options options;
   options.create_if_missing = true;
-  // real is 4mb we use 4kb as buffer size to see the stats more clearly
-  options.write_buffer_size = 4096;
+  // real is 4mb we use 1kb as buffer size to see the stats more clearly
+  options.write_buffer_size = 1024;
   leveldb::DB* db;
   leveldb::DB::Open(options,"/tmp/testdb",&db);
 
