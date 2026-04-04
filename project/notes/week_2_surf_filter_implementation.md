@@ -87,6 +87,26 @@ const FilterPolicy* NewSuRFFilterPolicy() {
 
 ---
 
+## CreateFilter Implementation
+
+**What CreateFilter Does**
+Called once per SSTable during compaction. Receives all sorted keys, builds a SuRF trie from them, serializes it into bytes, and appends those bytes to dst (a string buffer LevelDB manages).
+
+**Key Decisions Made**
+Why stack allocation instead of new SuRF(keys):
+SuRF test files use new because they store the object long-term. In CreateFilter we only need the object temporarily — build it, serialize it, done. Stack allocation (surf::SuRF leveldb_surf(key_strs)) is simpler and cleans itself up automatically.
+
+Why dst->append(key_bytes, key_len) and not dst->append(key_bytes):
+Serialized SuRF data is raw binary, not a regular string. Binary data can contain \0 bytes in the middle — the one-argument form of append stops at the first \0 and would corrupt the filter. The two-argument form copies exactly key_len bytes regardless of content.
+
+Why delete[] key_bytes is required:
+surf::SuRF::serialize() internally does new char[size] — the caller owns that memory. Without delete[] after appending, every compaction leaks memory. Must use delete[] not delete because it was allocated with new[].
+
+Why the intermediate key_bytes variable is not optional:
+Writing serialize() inline loses the pointer, making it impossible to free the memory. Keeping key_bytes as an explicit variable is the only way to call delete[] on it afterward.
+
+---
+
 ## Current Status
 - [x] `filter_policy.h` — `RangeMayMatch` added, `NewSuRFFilterPolicy` declared
 - [x] `surf_filter.cc` — skeleton compiles, all methods stubbed with safe `return true`
