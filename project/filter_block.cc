@@ -107,8 +107,8 @@ bool FilterBlockReader::KeyMayMatch(uint64_t block_offset, const Slice& key) {
 bool FilterBlockReader::RangeMayMatch(const Slice& lo, const Slice& hi) {
   for (uint32_t i = 0; i < num_; i++) { // loop through all mini-filters
     uint32_t start = DecodeFixed32(offset_ + i * 4); // use offset to find the block related to that mini-filter
-    uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
-    if (start <= limit && limit <= static_cast<size_t>(data_ - data_)) {
+    uint32_t limit = DecodeFixed32(offset_ + i * 4 + 4);
+    if (start <= limit && limit <= static_cast<size_t>(offset_ - data_)) {
       Slice filter = Slice(data_ + start, limit - start); // bytes that belong to  mini-filter i
       if (policy_-> RangeMayMatch(lo, hi, filter)) {
         return true;
