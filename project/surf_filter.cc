@@ -70,9 +70,6 @@ namespace leveldb {
                 surf->destroy(); // free any memory allocated by the SuRF object (if applicable)
                 delete surf; // prevent memory leaks
                 return result; // return the result of the lookup
-
-
-
             }
 
 
@@ -95,11 +92,6 @@ namespace leveldb {
                 surf_obj->destroy(); // free any memory allocated by the SuRF object (if applicable)
                 delete surf_obj; // prevent memory leaks
                 return result; // return the result of the range lookup
-
-
-
-
-
             }
         };
     } // namespace

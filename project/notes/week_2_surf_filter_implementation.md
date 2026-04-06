@@ -110,5 +110,5 @@ Writing serialize() inline loses the pointer, making it impossible to free the m
 ## Current Status
 - [x] `filter_policy.h` — `RangeMayMatch` added, `NewSuRFFilterPolicy` declared
 - [x] `surf_filter.cc` — skeleton compiles, all methods stubbed with safe `return true`
-- [ ] `surf_filter.cc` — fill in real SuRF constructor, serialize, deserialize, lookups
+- [x] `surf_filter.cc` — fill in real SuRF constructor, serialize, deserialize, lookups
 - [ ] `filter_block.cc` — fix 2KB problem (buffer all keys, call CreateFilter once in Finish)
