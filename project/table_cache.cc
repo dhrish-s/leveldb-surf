@@ -75,9 +75,11 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   return s;
 }
 
+// added for SuRF - added lo and hi key to support range query
 Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   uint64_t file_number, uint64_t file_size,
-                                  Table** tableptr) {
+                                   const Slice& lo,
+                                  const Slice& hi, Table** tableptr) {
   if (tableptr != nullptr) {
     *tableptr = nullptr;
   }
@@ -89,6 +91,16 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   }
 
   Table* table = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
+
+
+  //SuRF range check - added for SuRF
+  if (!lo.empty() && !hi.empty()) {
+  if (!table->RangeMayMatch(lo, hi)) {
+    cache_->Release(handle);
+    return NewEmptyIterator();
+  }
+}
+
   Iterator* result = table->NewIterator(options);
   result->RegisterCleanup(&UnrefEntry, cache_, handle);
   if (tableptr != nullptr) {

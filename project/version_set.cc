@@ -203,35 +203,53 @@ class Version::LevelFileNumIterator : public Iterator {
   const std::vector<FileMetaData*>* const flist_;
   uint32_t index_;
 
-  // Backing store for value().  Holds the file number and size.
+  
+// Backing store for value().  Holds the file number and size.
   mutable char value_buf_[16];
 };
 
+//adding for SuRF
+// SuRF : carries TableCache pointr plus optimal range
+// through the arg of TwoLevelIterator's block function callback
+struct TableCacheArg {
+  TableCache* cache;
+  Slice lo;
+  Slice hi;
+};
+
+static void DeleteTableCacheArg(void* arg, void*)
+{
+  delete reinterpret_cast<TableCacheArg*>(arg);
+}
+
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options,
                                  const Slice& file_value) {
-  TableCache* cache = reinterpret_cast<TableCache*>(arg);
+  TableCacheArg* tca = reinterpret_cast<TableCacheArg*>(arg);
   if (file_value.size() != 16) {
     return NewErrorIterator(
         Status::Corruption("FileReader invoked with unexpected value"));
   } else {
-    return cache->NewIterator(options, DecodeFixed64(file_value.data()),
-                              DecodeFixed64(file_value.data() + 8));
+    return tca->cache->NewIterator(options, DecodeFixed64(file_value.data()),
+                              DecodeFixed64(file_value.data() + 8),tca->lo,tca->hi );
   }
 }
 
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options,
-                                            int level) const {
-  return NewTwoLevelIterator(
+                                            int level,const Slice& lo, const Slice& hi) const {
+  TableCacheArg* arg = new TableCacheArg{vset_->table_cache_,lo,hi};
+  Iterator* iter = NewTwoLevelIterator(
       new LevelFileNumIterator(vset_->icmp_, &files_[level]), &GetFileIterator,
-      vset_->table_cache_, options);
+      arg, options);
+  iter->RegisterCleanup(&DeleteTableCacheArg, arg, nullptr);
+  return iter;
 }
 
 void Version::AddIterators(const ReadOptions& options,
-                           std::vector<Iterator*>* iters) {
+                           std::vector<Iterator*>* iters, const Slice& lo, const Slice& hi) {
   // Merge all level zero files together since they may overlap
   for (size_t i = 0; i < files_[0].size(); i++) {
     iters->push_back(vset_->table_cache_->NewIterator(
-        options, files_[0][i]->number, files_[0][i]->file_size));
+        options, files_[0][i]->number, files_[0][i]->file_size, lo, hi));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -239,7 +257,7 @@ void Version::AddIterators(const ReadOptions& options,
   // lazily.
   for (int level = 1; level < config::kNumLevels; level++) {
     if (!files_[level].empty()) {
-      iters->push_back(NewConcatenatingIterator(options, level));
+      iters->push_back(NewConcatenatingIterator(options, level, lo, hi));
     }
   }
 }
@@ -1135,7 +1153,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
         // approximate offset of "ikey" within the table.
         Table* tableptr;
         Iterator* iter = table_cache_->NewIterator(
-            ReadOptions(), files[i]->number, files[i]->file_size, &tableptr);
+            ReadOptions(), files[i]->number, files[i]->file_size, Slice(), Slice(),  &tableptr);
         if (tableptr != nullptr) {
           result += tableptr->ApproximateOffsetOf(ikey.Encode());
         }
@@ -1237,9 +1255,14 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         }
       } else {
         // Create concatenating iterator for the files from this level
-        list[num++] = NewTwoLevelIterator(
+        // Compaction has no range filter - use empty Slice so RangeMayMatch is skipped
+        // adding for SuRF
+        TableCacheArg* carg = new TableCacheArg{table_cache_,Slice(),Slice()};
+        Iterator* citer = NewTwoLevelIterator(
             new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-            &GetFileIterator, table_cache_, options);
+            &GetFileIterator, carg, options);
+          citer -> RegisterCleanup(&DeleteTableCacheArg, carg, nullptr);
+          list[num++] = citer;
       }
     }
   }

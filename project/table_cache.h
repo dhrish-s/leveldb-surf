@@ -36,7 +36,7 @@ class TableCache {
   // by the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
   Iterator* NewIterator(const ReadOptions& options, uint64_t file_number,
-                        uint64_t file_size, Table** tableptr = nullptr, const Slice& lo = Slice(), const Slice& hi = Slice()); // added lo and hi for SuRF
+                        uint64_t file_size, const Slice& lo = Slice(), const Slice& hi = Slice(),Table** tableptr = nullptr); // added lo and hi for SuRF
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value).

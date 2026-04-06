@@ -62,6 +62,30 @@ if [ -f /workspace/project/version_set.cc ]; then
     echo "  OK: version_set.cc -> db/"
 fi
 
+if [ -f /workspace/project/table_cache.h ]; then
+    cp /workspace/project/table_cache.h /workspace/leveldb/db/table_cache.h
+    echo "  OK: table_cache.h -> db/"
+fi
+
+if [ -f /workspace/project/filter_block.h ]; then
+    cp /workspace/project/filter_block.h /workspace/leveldb/table/filter_block.h
+    echo "  OK: filter_block.h -> table/"
+fi
+
+if [ -f /workspace/project/table.h ]; then
+    cp /workspace/project/table.h /workspace/leveldb/include/leveldb/table.h
+    echo "  OK: table.h -> include/leveldb/"
+fi
+
+if [ -f /workspace/project/table.cc ]; then
+    cp /workspace/project/table.cc /workspace/leveldb/table/table.cc
+    echo "  OK: table.cc -> table/"
+fi
+
+if [ -f /workspace/project/version_set.h ]; then
+    cp /workspace/project/version_set.h /workspace/leveldb/db/version_set.h
+    echo "  OK: version_set.h -> db/"
+fi
 # STEP 2: Incremental rebuild
 # cmake only recompiles files that changed. Usually 10-30 seconds.
 
