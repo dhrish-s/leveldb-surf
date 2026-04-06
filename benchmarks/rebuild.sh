@@ -92,6 +92,11 @@ if [ -f /workspace/project/db_bench.cc ]; then
     echo "  OK: db_bench.cc -> benchmarks/"
 fi
 
+if [ -f /workspace/project/filter_block_test.cc ]; then
+    cp /workspace/project/filter_block_test.cc /workspace/leveldb/table/filter_block_test.cc
+    echo "  OK: filter_block_test.cc -> table/"
+fi
+
 # STEP 2: Incremental rebuild
 # cmake only recompiles files that changed. Usually 10-30 seconds.
 

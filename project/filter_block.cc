@@ -19,11 +19,13 @@ FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
     : policy_(policy) {}
 
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
+  // SuRF: do not generate per-2KB filters
+  // All keys accumulate in keys_ until Finish() calls GenerateFilter() once
+  // We still track filter_index to satisfy the assert but never flush keys
   uint64_t filter_index = (block_offset / kFilterBase);
   assert(filter_index >= filter_offsets_.size());
-  while (filter_index > filter_offsets_.size()) {
-    GenerateFilter();
-  }
+  // added for SuRF
+  (void)filter_index;  // suppress unused variable warning
 }
 
 void FilterBlockBuilder::AddKey(const Slice& key) {
@@ -32,22 +34,31 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
   keys_.append(k.data(), k.size());
 }
 
+// added for SuRF
 Slice FilterBlockBuilder::Finish() {
+  // Build ONE filter from ALL buffered keys across the entire SSTable
   if (!start_.empty()) {
     GenerateFilter();
   }
 
-  // Append array of per-filter offsets
-  const uint32_t array_offset = result_.size();
-  for (size_t i = 0; i < filter_offsets_.size(); i++) {
-    PutFixed32(&result_, filter_offsets_[i]);
+  // If no keys were ever added, write original format so reader returns true
+  // Original format: array_offset=0, base_lg_=11 → num_=0 → fallthrough → true
+  if (result_.empty()) {
+    PutFixed32(&result_, 0);   // array_offset = 0
+    result_.push_back(kFilterBaseLg);  // base_lg_ = 11
+    return Slice(result_);
   }
 
-  PutFixed32(&result_, array_offset);
-  result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
+  // Write offset table with ONE entry pointing to the single filter
+  // base_lg_ = 32 so block_offset >> 32 = 0 for any block offset
+  // FilterBlockReader always uses filter[0] for every block
+  const uint32_t array_offset = result_.size();
+  PutFixed32(&result_, 0);            // entry[0]: filter starts at byte 0
+  PutFixed32(&result_, array_offset); // entry[1]: sentinel, filter ends here
+  PutFixed32(&result_, array_offset); // footer: offset table location
+  result_.push_back(32);              // base_lg_ = 32
   return Slice(result_);
 }
-
 void FilterBlockBuilder::GenerateFilter() {
   const size_t num_keys = start_.size();
   if (num_keys == 0) {

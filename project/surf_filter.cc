@@ -30,7 +30,7 @@ namespace leveldb {
             // keys[0..n-1] are sorted keys (InternalFilterPolicy has stripped the 8-byte internal suffix already)
             // Append the serialized SuRF bytes to *dst
             void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
-                if (n < 50) return; // safe fallback so SuRF's constructor doesnt crash or produce meaningless trie
+                if (n == 0) return; // safe fallback so SuRF's constructor doesnt crash or produce meaningless trie
 
                 // TODO: convert keys to the format SuRF expects
                 std::vector<std::string> key_strs;
@@ -60,17 +60,26 @@ namespace leveldb {
             //
             // safety: if deserialization fails, return true (safety fallback)
             bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
-                if (filter.empty()) return true; // safe fallback
-                if (filter.size() < 64) return true;
+                if (filter.empty()) return true;
+                // thread_local cache: avoid re-deserializing SuRF for the same SSTable
+                // When the same SSTable is queried repeatedly, filter.data() is the same
+                // pointer - reuse the cached SuRF object instead of rebuilding each call
+                thread_local const char* last_filter_ptr = nullptr;
+                thread_local surf::SuRF* cached_surf = nullptr;
 
-                // deserialize SuRF from filter bytes
-                // surf::SuRF surf = surf::SuRF::deSerialize(...);
-                char* src = const_cast<char*>(filter.data());
-                surf::SuRF* surf = surf::SuRF::deSerialize(src);
-                bool result = surf->lookupKey(key.ToString());
-                surf->destroy(); // free any memory allocated by the SuRF object (if applicable)
-                delete surf; // prevent memory leaks
-                return result; // return the result of the lookup
+                if (filter.data() != last_filter_ptr) {
+                    // Different SSTable - rebuild the cache
+                    if (cached_surf != nullptr) {
+                        cached_surf->destroy();
+                        delete cached_surf;
+                        cached_surf = nullptr;
+                    }
+                    std::string buf(filter.data(), filter.size());
+                    char* src = &buf[0];
+                    cached_surf = surf::SuRF::deSerialize(src);
+                    last_filter_ptr = filter.data();
+                }
+                return cached_surf->lookupKey(key.ToString());
             }
 
 
@@ -80,20 +89,25 @@ namespace leveldb {
             // returns true   ---> some key might be present (false positives OK)
             //
             // safety: if deserialization fails, return true (safety fallback)
-            bool RangeMayMatch(const Slice& lo, const Slice& hi, const Slice& filter) const override {
-                if (filter.empty()) return true; // safe fallback
-                if (filter.size() < 64) return true;
+            bool RangeMayMatch(const Slice& lo, const Slice& hi,
+                            const Slice& filter) const override {
+                if (filter.empty()) return true;
+                // thread_local cache: same pattern as KeyMayMatch
+                thread_local const char* last_filter_ptr = nullptr;
+                thread_local surf::SuRF* cached_surf = nullptr;
 
-                // deserialize SuRF from filter bytes
-                // surf::SuRF surf = surf::SuRF::deSerialize(...);
-                char* src = const_cast<char*>(filter.data());
-                surf::SuRF* surf_obj = surf::SuRF::deSerialize(src);
-                bool result = surf_obj->lookupRange(lo.ToString(),true, hi.ToString(),true);
-                //return surf lookup range, lo and hi inclusive
-
-                surf_obj->destroy(); // free any memory allocated by the SuRF object (if applicable)
-                delete surf_obj; // prevent memory leaks
-                return result; // return the result of the range lookup
+                if (filter.data() != last_filter_ptr) {
+                    if (cached_surf != nullptr) {
+                        cached_surf->destroy();
+                        delete cached_surf;
+                        cached_surf = nullptr;
+                    }
+                    std::string buf(filter.data(), filter.size());
+                    char* src = &buf[0];
+                    cached_surf = surf::SuRF::deSerialize(src);
+                    last_filter_ptr = filter.data();
+                }
+                return cached_surf->lookupRange(lo.ToString(), true, hi.ToString(), true);
             }
         };
     } // namespace

@@ -15,6 +15,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 
+
 namespace leveldb {
 
 struct Table::Rep {
@@ -30,6 +31,9 @@ struct Table::Rep {
   uint64_t cache_id;
   FilterBlockReader* filter;
   const char* filter_data;
+
+
+
 
   BlockHandle metaindex_handle;  // Handle to metaindex_block: saved from footer
   Block* index_block;
@@ -72,6 +76,7 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
     rep->filter_data = nullptr;
     rep->filter = nullptr;
+
     *table = new Table(rep);
     (*table)->ReadMeta(footer);
   }
@@ -268,14 +273,12 @@ uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
   return result;
 }
 
-bool Table::RangeMayMatch(const Slice& lo, const Slice& hi) const 
+bool Table::RangeMayMatch(const Slice& lo, const Slice& hi) const
 {
-  if(rep_->filter == nullptr) {
-    return true; // No filter means we have to check every key
-  }
   // Check if the filter may match any key in the range [lo, hi]
   // This is a conservative check: it may return true even if there are no keys in
   // the range, but it will never return false if there is a key in the range.
+  if (rep_->filter == nullptr) return true;
   return rep_->filter->RangeMayMatch(lo, hi);
 }
 
