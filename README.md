@@ -1,5 +1,5 @@
 # LevelDB + SuRF: Range Query Filter Extension
-**Team:** Jahnavi Manoj · Dhrish Kumar Suman
+
 **University:** University of Southern California
 **Repository:** github.com/dhrish-s/leveldb-surf
 
