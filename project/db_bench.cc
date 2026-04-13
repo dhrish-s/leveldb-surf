@@ -853,6 +853,11 @@ class Benchmark {
         }
       }
 
+      // Ensure SSTables exist for metrics when fillrandom is run
+      if (FLAGS_metrics_out && name == Slice("fillrandom")) {
+        db_->CompactRange(nullptr, nullptr);
+      }
+
       if (method != nullptr) {
         RunBenchmark(num_threads, name, method);
       }
