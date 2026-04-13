@@ -97,6 +97,105 @@ The frontend will display:
 - **Query Trace Table**: Individual query events with detailed metrics
 - **Event Inspector**: JSON view of selected query event
 
+## Restart Workflow from Scratch
+
+### Terminal 1 — inside container
+- Start in repo root on host machine:
+  ```bash
+  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf"
+  ```
+- Start container with mounts:
+  ```bash
+  docker run -it --rm -v "${PWD}\project:/workspace/project" -v "${PWD}\benchmarks:/workspace/benchmarks" -v "${PWD}\metrics:/workspace/metrics" leveldb-surf-leveldb-surf
+  ```
+- If C++ source changed, rebuild inside container:
+  ```bash
+  cd /workspace/leveldb
+  bash /workspace/benchmarks/rebuild.sh
+  cd /workspace/leveldb/build
+  cmake ..
+  make -j
+  ```
+- If C++ source did not change, skip rebuild and go directly to:
+  ```bash
+  cd /workspace/leveldb/build
+  ```
+- Generate Bloom metrics:
+  ```bash
+  ./db_bench --benchmarks=fillrandom,readrandom --num=1000 --filter=bloom --metrics_out=/workspace/metrics/bloom_fixcheck.jsonl
+  ```
+- Generate SuRF metrics:
+  ```bash
+  ./db_bench --benchmarks=fillrandom,surfscan50 --num=1000 --filter=surf --metrics_out=/workspace/metrics/surf_fixcheck.jsonl
+  ```
+- Confirm files:
+  ```bash
+  ls /workspace/metrics
+  ```
+
+### Terminal 2 — backend outside Docker
+- Go to repo root on host machine:
+  ```bash
+  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf"
+  ```
+- Start backend with Bloom metrics:
+  ```powershell
+  cd dashboard-server
+  $env:METRICS_FILE="../metrics/bloom_fixcheck.jsonl"
+  $env:PORT="3001"
+  npm start
+  ```
+- To switch to SuRF later:
+  ```powershell
+  stop backend with Ctrl + C
+  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf\dashboard-server"
+  $env:METRICS_FILE="../metrics/surf_fixcheck.jsonl"
+  $env:PORT="3001"
+  npm start
+  ```
+
+### Terminal 3 — frontend outside Docker
+- Go to repo root on host machine:
+  ```bash
+  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf"
+  ```
+- Start frontend:
+  ```bash
+  cd dashboard-ui
+  npm run dev
+  ```
+- Open the URL shown, usually:
+  ```text
+  http://localhost:5173/
+  ```
+
+## Quick Verification
+
+- Backend health check commands:
+  ```powershell
+  Invoke-RestMethod http://localhost:3001/api/health
+  Invoke-RestMethod http://localhost:3001/api/meta
+  Invoke-RestMethod http://localhost:3001/api/summary
+  Invoke-RestMethod "http://localhost:3001/api/events?limit=5"
+  ```
+- Frontend check:
+  Open http://localhost:5173 and confirm cards, charts, and table load
+
+## Short Version
+
+- Start container
+- Generate metrics
+- Start backend
+- Start frontend
+
+## When rebuild is required
+
+Rebuild is only needed if LevelDB C++ source code changed.
+
+## When rebuild is not required
+
+Rebuild is not needed for regenerating metrics, switching metrics files, or running backend/frontend.
+
 ## Data Flow
 
 ```
