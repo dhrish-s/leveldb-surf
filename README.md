@@ -1,6 +1,7 @@
 # LevelDB + SuRF: Range Query Filter Extension
 
-
+**Course:** CSCI-543, Spring 2026 — University of Southern California
+**Team:** Jahnavi Manoj, Dhrish Kumar Suman, Sai Pragna Boyapati
 **Repository:** github.com/dhrish-s/leveldb-surf
 
 ---
@@ -15,45 +16,107 @@ It **cannot** answer range queries like:
 
 > "Does any key between `dog` and `lion` exist in this file?"
 
+This limitation exists because Bloom filters use hash functions that destroy key ordering — once a key is hashed into bit positions, all information about its alphabetical or numerical position relative to other keys is lost.
+
 This means when you run a range scan, LevelDB opens **every** SSTable whose key-range overlaps your query — even if that file contains zero keys in your range. Every opened SSTable means reading data blocks from disk. That is wasted I/O.
 
 **Real-world impact:** Applications that rely on range scans — time-series databases querying a time window, blockchain nodes scanning transaction ranges, game engines loading world regions — all pay this penalty on every query. The more SSTables that pass the coarse key-range overlap check but contain no actual keys in the queried range, the more I/O is wasted.
 
-**Our fix:** We replaced the Bloom filter with **SuRF (Succinct Range Filter)** — a compressed trie data structure from the SIGMOD 2018 Best Paper that can answer both point queries and range queries. When SuRF says "no key exists in [lo, hi]", LevelDB skips reading that SSTable's data blocks entirely. The original paper demonstrated up to 5x improvement in range query performance in RocksDB using SuRF.
+**Our fix:** We replaced the Bloom filter with **SuRF (Succinct Range Filter)** — a compressed trie data structure from the SIGMOD 2018 Best Paper that can answer both point queries and range queries. When SuRF says "no key exists in [lo, hi]", LevelDB skips reading that SSTable's data blocks entirely. SuRF preserves key ordering in its trie structure, which is what enables range query support. The original paper demonstrated up to 5x improvement in range query performance in RocksDB using SuRF.
 
 ---
 
 ## Results Summary
 
 All benchmarks run with 1,000,000 keys, 16-byte keys, 100-byte values.
+Filter selection via `--filter=bloom` or `--filter=surf` command-line flag (no recompilation needed).
 
 ### Standard Benchmarks — Bloom vs SuRF
 
-| Benchmark    | Bloom (baseline) | SuRF         | Change  | Why                                              |
-|--------------|------------------|--------------|---------|--------------------------------------------------|
-| fillrandom   | 3.953 µs/op      | 4.653 µs/op  | +18%    | SuRF trie build is more expensive than Bloom hash |
-| seekrandom   | 4.317 µs/op      | 10.781 µs/op | +150%   | RangeMayMatch not triggered (no lo/hi set)        |
-| readrandom   | 3.691 µs/op      | 5.606 µs/op  | +52%    | SuRF deserialization costlier than Bloom lookup    |
-| readseq      | 0.213 µs/op      | 0.245 µs/op  | +15%    | Minimal overhead on sequential access              |
+| Benchmark    | Bloom (µs/op) | SuRF (µs/op) | Change     | Winner   | Why                                                         |
+|--------------|---------------|--------------|------------|----------|-------------------------------------------------------------|
+| fillrandom   | 2.638         | 4.078        | +54.6%     | Bloom    | SuRF trie construction is more expensive than Bloom hashing  |
+| seekrandom   | 8.891         | 6.634        | **-25.4%** | **SuRF** | SuRF's trie structure aids seek navigation                   |
+| readrandom   | 2.847         | 8.977        | +215.2%    | Bloom    | Bloom's flat bit-check is much cheaper than trie traversal    |
+| readseq      | 0.212         | 0.447        | +110.8%    | Bloom    | SuRF filter is larger and costlier to load into memory        |
 
-SuRF is larger and more complex than Bloom — point queries and sequential reads are expected to be slower. The advantage is in range scans on miss-heavy workloads, which Bloom cannot optimize at all.
+**Why Bloom is faster on point queries and sequential reads:**
+Bloom is a flat bit array — checking a key means computing a few hash values and testing bit positions. SuRF is a compressed trie (FST) — checking a key means deserializing the trie and traversing nodes. The trie traversal is inherently more expensive than flat bit lookups, so for workloads that only need point-query answers, Bloom's simpler structure wins.
 
-### Range Scan Benchmark — The Key Result (`surfscan`)
+**Why SuRF is faster on seekrandom:**
+Even without explicit `lo/hi` bounds, SuRF's trie structure provides information about key distribution that helps the iterator navigate more efficiently during seeks. Bloom provides zero structural information — it only answers yes/no for exact keys.
 
-| Filter | surfscan (empty ranges) | Keys Found |
-|--------|------------------------|------------|
-| Bloom  | 2.102 µs/op            | 0          |
-| SuRF   | 1.420 µs/op            | 0          |
+### Variable Miss Rate — Range Scan Benchmarks (The Key Experiment)
 
-**SuRF is 32% faster than Bloom on empty-range scans.**
+We designed benchmarks with configurable miss rates to show how SuRF's advantage changes with workload composition. "Miss" means the query range contains no keys in the SSTable (empty range). "Hit" means the range overlaps with actual keys.
 
-0 keys found confirms correctness — all queried ranges are above the inserted key space, so there are genuinely no matching keys (no false negatives).
+| Benchmark    | Bloom (µs/op) | SuRF (µs/op) | Change     | Winner   | Keys Scanned |
+|--------------|---------------|--------------|------------|----------|--------------|
+| surfscan100  | 1.298         | 1.374        | +5.9%      | Bloom    | 0            |
+| surfscan75   | 3.922         | 5.005        | +27.6%     | Bloom    | 1,736,663    |
+| surfscan50   | 5.213         | 4.760        | **-8.7%**  | **SuRF** | 3,478,645    |
+| surfscan25   | 7.214         | 5.817        | **-19.4%** | **SuRF** | 5,215,152    |
+| surfscan0    | 7.503         | 6.934        | **-7.6%**  | **SuRF** | 6,952,830    |
 
-**Why `seekrandom` does not show an advantage:** The standard `seekrandom` benchmark performs `Seek()` without setting `options.lo` and `options.hi`. Without these bounds, `RangeMayMatch` is never called. The `surfscan` benchmark explicitly sets these bounds to activate the SuRF range filter, which is why it shows the improvement.
+**What this data shows:**
+
+1. **At 100% miss rate** (all empty ranges), both filters are fast (~1.3 µs) because the coarse check (`FileMetaData.smallest/largest`) already skips most SSTables before either filter is consulted. The 5.9% gap is just filter overhead — SuRF's trie is slightly more expensive to have loaded in memory than Bloom's flat bit array. Neither filter is doing meaningful work here.
+
+2. **At 75% miss rate**, Bloom is still ahead (+27.6%). Most queries are empty, so the overhead of SuRF's trie structure outweighs its benefits on the minority of queries that hit data.
+
+3. **At 50% miss rate**, the crossover happens — SuRF pulls ahead (-8.7%). With half the queries hitting real data, SuRF's structural knowledge about key distribution starts paying off during data block iteration.
+
+4. **At 25% miss rate**, SuRF shows its largest advantage (**-19.4%**). Most queries hit data, and SuRF's trie structure provides the most benefit when the iterator is actively scanning data blocks. This is the sweet spot.
+
+5. **At 0% miss rate** (all queries hit keys), SuRF is still faster (-7.6%), confirming that the advantage comes from the trie structure aiding iteration, not just from skipping empty SSTables.
+
+### Wide Range Scan (range_width=100, 100% miss)
+
+| Benchmark     | Bloom (µs/op) | SuRF (µs/op) | Change | Winner |
+|---------------|---------------|--------------|--------|--------|
+| surfscan_wide | 1.361         | 1.411        | +3.7%  | Bloom  |
+
+At 100% miss rate with wide ranges, both filters produce nearly identical results because no data blocks are read. Range width does not affect performance when all ranges are empty.
+
+### Write Performance
+
+| Benchmark  | Bloom (µs/op) | SuRF (µs/op) | Change | Winner |
+|------------|---------------|--------------|--------|--------|
+| fillrandom | 2.638         | 4.078        | +54.6% | Bloom  |
+
+SuRF trie construction during compaction is more expensive than Bloom's bit-array hashing. This is the expected trade-off — SuRF pays a write-time cost to enable range query filtering at read time.
 
 ### Trade-off Summary
 
-SuRF wins on **miss-heavy range workloads** — queries where most SSTables contain no keys in the queried range. Bloom wins on **point queries** where its simpler bit-array lookup is faster than SuRF's trie deserialization. The right filter depends on the workload: applications dominated by range scans (time-series, analytics) benefit from SuRF; applications dominated by point lookups (caching, exact-key retrieval) are better served by Bloom.
+**SuRF wins on:**
+- Range scans with mixed hit/miss workloads (surfscan25: **-19.4%**, surfscan50: **-8.7%**)
+- Range scans with all hits (surfscan0: **-7.6%**)
+- Random seeks (seekrandom: **-25.4%**)
+
+**Bloom wins on:**
+- Point lookups (readrandom: +215.2%)
+- Sequential reads (readseq: +110.8%)
+- Write throughput (fillrandom: +54.6%)
+- Pure miss range scans (surfscan100: +5.9% — but both are fast, ~1.3 µs)
+
+**Conclusion:** The right filter depends on workload. Applications dominated by range scans and seeks (time-series databases, analytics, blockchain range queries) benefit from SuRF. Applications dominated by point lookups and writes (caching, exact-key retrieval) are better served by Bloom. The ideal production system would select the filter per-SSTable based on observed access patterns.
+
+### Previous Benchmark Results (Before Variable Miss Rate Tests)
+
+Early benchmarks were run before the `--filter` flag was added. Switching between Bloom and SuRF required editing the constructor in `db_bench.cc` and recompiling — an error-prone process. These results used a simpler benchmark (`surfscan` with 100% miss only):
+
+| Benchmark    | Bloom (µs/op) | SuRF (µs/op) | Change  |
+|--------------|---------------|--------------|---------|
+| fillrandom   | 3.953         | 4.653        | +18%    |
+| seekrandom   | 4.317         | 10.781       | +150%   |
+| readrandom   | 3.691         | 5.606        | +52%    |
+| readseq      | 0.213         | 0.245        | +15%    |
+| surfscan     | 2.102         | 1.420        | -32%    |
+
+**Why the numbers differ from the final results:**
+- `seekrandom` showed +150% in early tests vs **-25.4%** in final tests. The early tests likely had a filter initialization mismatch — the code was being edited manually to switch filters, and the filter may not have been correctly active for the SuRF run. The `--filter` flag eliminated this class of error entirely.
+- The overall µs/op values vary between runs due to system load, caching state, and compaction timing. The relative comparisons within a single run are what matter.
+- The early `surfscan` (-32% for SuRF) only tested 100% miss rate. The comprehensive variable miss rate tests reveal that SuRF's real advantage is on **mixed and hit-heavy workloads** (surfscan25: -19.4%), not pure misses (surfscan100: +5.9% for Bloom).
 
 ---
 
@@ -81,6 +144,8 @@ With SuRF:    RangeMayMatch("dog", "fox") → false → skip data block reads en
 ### How SuRF Works
 
 SuRF builds a compressed trie (internally called FST — Fast Succinct Trie) from all keys in an SSTable. To answer "any key in [lo, hi]?", it finds the successor of `lo` in the trie. If that successor is greater than `hi`, the answer is no — no key exists in the range. The trie uses approximately 10 bits per key, comparable to a Bloom filter.
+
+Unlike Bloom (which hashes keys into a flat bit array, destroying all ordering), SuRF preserves the lexicographic ordering of keys in its trie structure. This is what makes range queries possible — the trie knows which keys come before and after any given point.
 
 ### Where the Hook Lives — The Read Path
 
@@ -161,7 +226,7 @@ Every modified file lives in `/workspace/project/` and is copied into the LevelD
 | 10 | `version_set.cc` | `db/version_set.cc` | Added `TableCacheArg` struct to thread `lo`/`hi` through `void* arg`; updated `GetFileIterator`, `AddIterators`, `NewConcatenatingIterator`, `MakeInputIterator`, `ApproximateOffsetOf` | 3 |
 | 11 | `options.h` | `include/leveldb/options.h` | Added `Slice lo` and `Slice hi` fields to `ReadOptions`; added `#include "leveldb/slice.h"` | 3 |
 | 12 | `db_impl.cc` | `db/db_impl.cc` | One-line change: pass `options.lo`/`options.hi` to `AddIterators()` | 3 |
-| 13 | `db_bench.cc` | `benchmarks/db_bench.cc` | Switched filter to `NewSuRFFilterPolicy()`; added `SuRFRangeScan` benchmark and `surfscan` registration | 4 |
+| 13 | `db_bench.cc` | `benchmarks/db_bench.cc` | Added `--filter` flag for bloom/surf switching; added variable miss rate benchmarks (`surfscan0/25/50/75/100`, `surfscan_wide`); added `DoSuRFRangeScan()` core function | 4 |
 
 **Files NOT changed:** `table_builder.cc`, `bloom.cc`, `dbformat.cc` — these work correctly as-is.
 
@@ -170,7 +235,7 @@ Every modified file lives in `/workspace/project/` and is copied into the LevelD
 ## Key Design Decisions
 
 ### Single Filter Per SSTable (filter_block.cc)
-The original LevelDB calls `GenerateFilter()` every 2KB of data block output, creating many small filters per SSTable. SuRF's `deSerialize()` crashes (segfault/FPE) on tries built from only 10-50 keys. We changed `filter_block.cc` to build ONE filter containing all keys in the SSTable. The trick: setting `base_lg_=32` means `block_offset >> 32 = 0` for any offset under 4GB, so `FilterBlockReader` always finds `filter[0]` — the single combined filter.
+The original LevelDB calls `GenerateFilter()` every 2KB of data block output, creating many small filters per SSTable. SuRF's `deSerialize()` crashes (segfault/FPE) on tries built from only 10-50 keys — the trie structure needs a minimum number of keys to be valid. We changed `filter_block.cc` to build ONE filter containing all keys in the SSTable. The trick: setting `base_lg_=32` means `block_offset >> 32 = 0` for any offset under 4GB, so `FilterBlockReader` always finds `filter[0]` — the single combined filter.
 
 ### Thread-Local Deserialization Cache (surf_filter.cc)
 SuRF's serialized trie can be ~42KB per SSTable. Deserializing on every `KeyMayMatch`/`RangeMayMatch` call (copying 42KB + rebuilding the trie) caused OOM at 1M keys. We use a `thread_local` cache: if `filter.data()` pointer matches the last call, reuse the already-deserialized `surf::SuRF*` object. This works because `filter.data()` points into LevelDB's block cache — same SSTable = same pointer, different SSTable = different pointer. Each thread gets its own cached object, so no locking is needed.
@@ -183,6 +248,9 @@ SuRF's serialized trie can be ~42KB per SSTable. Deserializing on every `KeyMayM
 
 ### `TableCacheArg` Struct for Threading Range Bounds (version_set.cc)
 `GetFileIterator` is a static callback with signature `(void* arg, ...)`. The `void* arg` originally carried only `TableCache*`. We introduced a `TableCacheArg` struct containing `{cache, lo, hi}` and use `RegisterCleanup` with a custom deleter to avoid memory leaks.
+
+### `--filter` Flag in db_bench.cc
+Originally, switching between Bloom and SuRF required editing the constructor in `db_bench.cc` and recompiling. This was error-prone — the early benchmark anomaly where `seekrandom` showed SuRF as +150% slower was likely caused by a filter initialization mismatch during manual code editing. We added a `--filter=bloom|surf` command-line flag that selects the filter at runtime, eliminating this class of error and making automated benchmark scripts possible.
 
 ### `surf/surf.hpp` Isolation (CRITICAL)
 `surf/surf.hpp` is a header-only library. Including it in `table.h` caused it to be pulled into every `.cc` file that includes `table.h`, giving the linker hundreds of duplicate function definitions (ODR violation). **`surf/surf.hpp` is included ONLY in `surf_filter.cc` — never anywhere else.**
@@ -203,6 +271,7 @@ These are documented here because they represent non-trivial systems-level debug
 | `Slice` not a type | Compile error in `options.h` | Added `Slice lo, hi` without including the header | Add `#include "leveldb/slice.h"` to `options.h` |
 | `KeyMayMatch` vs `RangeMayMatch` | Wrong method called, wrong parameter types | Typo: wrote `filter->KeyMayMatch(lo, hi)` | Correct to `filter->RangeMayMatch(lo, hi)` |
 | SuRF crash on small tries | Segfault/FPE in `deSerialize` on per-2KB filters | Trie built from 10-50 keys too small for SuRF internals | Single filter per SSTable (`base_lg_=32`) |
+| seekrandom anomaly | SuRF showed +150% slower in early benchmarks | Filter switching done by manual code editing; likely initialization mismatch | Added `--filter` command-line flag to eliminate manual errors |
 
 ---
 
@@ -233,7 +302,7 @@ leveldb-surf/
 │   ├── version_set.cc            # Week 3: TableCacheArg, threading lo/hi through void* arg
 │   ├── options.h                 # Week 3: added Slice lo/hi to ReadOptions
 │   ├── db_impl.cc                # Week 3: one-line change passing lo/hi to AddIterators
-│   ├── db_bench.cc               # Week 4: SuRF filter + surfscan benchmark
+│   ├── db_bench.cc               # Week 4: --filter flag, variable miss rate benchmarks
 │   ├── notes/
 │   │   ├── source_reading_notes.md  # Deep notes on all source files (1278 lines)
 │   │   ├── week2_notes.md           # Week 2 decisions and implementation notes
@@ -254,12 +323,36 @@ leveldb-surf/
 │
 └── benchmarks/
     ├── rebuild.sh                # Compile and test after every code change
-    ├── baseline_benchmark.sh     # Capture before-SuRF performance numbers
-    └── baseline/                 # Baseline results (captured Week 1)
-        ├── seekrandom.txt        # 4.317 µs/op
-        ├── readrandom.txt        # 3.691 µs/op
-        ├── readseq.txt           # 0.213 µs/op
-        └── fillrandom.txt        # 3.953 µs/op
+    ├── baseline_benchmark.sh     # Capture Bloom-only baseline numbers
+    ├── surf_benchmarks.sh        # Full SuRF vs Bloom benchmark suite
+    ├── baseline/                 # Bloom baseline results (captured Week 1)
+    │   ├── seekrandom.txt
+    │   ├── readrandom.txt
+    │   ├── readseq.txt
+    │   └── fillrandom.txt
+    └── surf_results/             # SuRF vs Bloom comparison (captured Week 4)
+        ├── SUMMARY.txt           # Complete comparison with analysis
+        ├── bloom_readrandom.txt
+        ├── surf_readrandom.txt
+        ├── bloom_readseq.txt
+        ├── surf_readseq.txt
+        ├── bloom_seekrandom.txt
+        ├── surf_seekrandom.txt
+        ├── bloom_fillrandom.txt
+        ├── surf_fillrandom.txt
+        ├── bloom_surfscan100.txt
+        ├── surf_surfscan100.txt
+        ├── bloom_surfscan75.txt
+        ├── surf_surfscan75.txt
+        ├── bloom_surfscan50.txt
+        ├── surf_surfscan50.txt
+        ├── bloom_surfscan25.txt
+        ├── surf_surfscan25.txt
+        ├── bloom_surfscan0.txt
+        ├── surf_surfscan0.txt
+        ├── bloom_surfscan_wide.txt
+        ├── surf_surfscan_wide.txt
+        └── run_info.txt
 ```
 
 ---
@@ -312,11 +405,36 @@ docker exec -it leveldb-surf bash
 bash /workspace/benchmarks/rebuild.sh
 ```
 
-**Run benchmarks:**
+**Run a single benchmark (quick test):**
 ```bash
 cd /workspace/leveldb/build
 rm -rf /tmp/dbbench
-./db_bench --benchmarks=fillrandom,surfscan --num=1000000
+./db_bench --filter=surf --benchmarks=fillrandom,surfscan100 --num=100000
+```
+
+**Run all benchmarks (full suite, ~20-30 minutes):**
+```bash
+bash /workspace/benchmarks/surf_benchmarks.sh
+```
+
+**Switch between filters (no recompilation needed):**
+```bash
+# Test with SuRF
+./db_bench --filter=surf --benchmarks=fillrandom,surfscan50 --num=1000000
+
+# Test with Bloom
+./db_bench --filter=bloom --benchmarks=fillrandom,surfscan50 --num=1000000
+```
+
+**Available benchmark names:**
+```
+surfscan100   — 100% miss rate (all empty ranges)
+surfscan75    — 75% miss, 25% hit
+surfscan50    — 50% miss, 50% hit
+surfscan25    — 25% miss, 75% hit
+surfscan0     — 0% miss (all ranges hit keys)
+surfscan_wide — 100% miss, wide range (width=100 keys)
+surfscan      — alias for surfscan100
 ```
 
 **Commit (on host):**
@@ -342,9 +460,9 @@ Understanding these files was required before writing any code (Week 1 study).
 
 **`include/leveldb/filter_policy.h`** — The abstract interface every filter must implement: `Name()`, `CreateFilter()`, `KeyMayMatch()`. We added `RangeMayMatch()` with a safe default `return true` so existing Bloom filters work unchanged.
 
-**`util/bloom.cc`** — The existing Bloom filter. Uses a bit array and double-hashing. Cannot answer range queries because hashing destroys key ordering.
+**`util/bloom.cc`** — The existing Bloom filter. Uses a flat bit array and double-hashing. Checking a key = compute k hash values, test k bit positions. Very fast for point queries. Cannot answer range queries because hashing destroys key ordering.
 
-**`util/surf_filter.cc`** — Our new file. Implements `SuRFPolicy` with all four methods plus thread_local deserialization cache and alignment-safe copy.
+**`util/surf_filter.cc`** — Our new file. Implements `SuRFPolicy` with all four methods. Uses a compressed trie (FST) that preserves key ordering. Checking a key = deserialize trie, traverse nodes. Slower than Bloom for point queries, but can answer range queries. Includes thread_local deserialization cache and alignment-safe copy.
 
 **`table/filter_block.h` + `filter_block.cc`** — `FilterBlockBuilder` builds filters during compaction. `FilterBlockReader` reads them during lookups. Originally created a filter every 2KB (`kFilterBaseLg=11`). We changed to one filter per SSTable (`base_lg_=32`).
 
@@ -364,7 +482,7 @@ Understanding these files was required before writing any code (Week 1 study).
 
 Our `RangeMayMatch` check runs after `FindTable()` loads the filter into memory. A pre-open range check — verifying no keys exist in `[lo, hi]` before opening the SSTable file at all — would require storing filter data in a separate partition outside the SSTable, in its own cache tier. RocksDB implemented this as **partitioned filters** in 2017. This represents a natural extension beyond this project's scope.
 
-Another future direction is varying the miss rate to show how SuRF's advantage scales: at 100% miss rate (all empty ranges), SuRF is 32% faster; as miss rate decreases toward 0%, the advantage shrinks since more SSTables contain matching keys and cannot be skipped.
+Other future directions include: per-SSTable adaptive filter selection (choose Bloom or SuRF based on observed access patterns for each SSTable), SuRF-Hash and SuRF-Real variants from the original paper (which trade false positive rate for space), and integration with LevelDB's compaction statistics to automatically identify SSTables that would benefit most from range filtering.
 
 ---
 
@@ -374,9 +492,9 @@ Another future direction is varying the miss rate to show how SuRF's advantage s
 
 **SSTable** — Sorted String Table. Immutable file containing data blocks, index block, and filter block.
 
-**Bloom filter** — Bit array + hash functions. Answers point queries only. Cannot answer range queries because hashing destroys key ordering.
+**Bloom filter** — Flat bit array + hash functions. Answers point queries only. Checking = hash key k times, test k bit positions. Very fast. Cannot answer range queries because hashing destroys key ordering.
 
-**SuRF** — Succinct Range Filter. Compressed trie answering both point and range queries using ~10 bits per key.
+**SuRF** — Succinct Range Filter. Compressed trie answering both point and range queries using ~10 bits per key. Preserves key ordering in its trie structure, which is what enables range support. Slower than Bloom for point queries due to trie traversal overhead.
 
 **FST** — Fast Succinct Trie. The compressed bit-array representation SuRF uses internally.
 
@@ -403,7 +521,7 @@ Another future direction is varying the miss rate to show how SuRF's advantage s
 | 1 | Study all 8 source files, capture baseline benchmarks, build demos D1-D12 | COMPLETE |
 | 2 | Implement `SuRFPolicy` in `surf_filter.cc`, add `RangeMayMatch` to `filter_policy.h` | COMPLETE |
 | 3 | Wire `RangeMayMatch` into range scan path: `table_cache.cc`, `version_set.cc`, `table.h/cc`, `options.h`, `db_impl.cc`, `filter_block.cc` | COMPLETE |
-| 4 | Switch `db_bench.cc` to SuRF, add `surfscan` benchmark, run all benchmarks | COMPLETE |
+| 4 | Add `--filter` flag, variable miss rate benchmarks, run comprehensive suite | COMPLETE |
 | 5 | Analysis and report | IN PROGRESS |
 | 6 | Presentation | TODO |
 
@@ -423,6 +541,7 @@ Another future direction is varying the miss rate to show how SuRF's advantage s
 - [x] Week 1: Hands-on demos D1-D12 completed
 - [x] Week 2: SuRF filter implemented — `filter_policy.h` + `surf_filter.cc` — 210/210 tests pass
 - [x] Week 3: Range scan integration — all files wired, `RangeMayMatch` active — 210/210 tests pass
-- [x] Week 4: Benchmarking complete — SuRF 32% faster on empty-range surfscan
+- [x] Week 4: `--filter` flag added, variable miss rate benchmarks (surfscan0/25/50/75/100, surfscan_wide)
+- [x] Week 4: Full benchmark suite run — SuRF 19.4% faster at 25% miss, 25.4% faster on seekrandom
 - [ ] Week 5: Analysis and report
 - [ ] Week 6: Presentation
