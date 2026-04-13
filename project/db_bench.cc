@@ -1238,8 +1238,10 @@ class Benchmark {
       int64_t end = g_env->NowMicros();
       total_scanned += scanned;
       delete iter;
-      RecordQueryEvent(benchmark_name, "range_scan", &lo_key.slice(),
-                       &hi_key.slice(), scanned > 0,
+      Slice lo_slice = lo_key.slice();
+      Slice hi_slice = hi_key.slice();
+      RecordQueryEvent(benchmark_name, "range_scan", &lo_slice,
+                       &hi_slice, scanned > 0,
                        static_cast<double>(end - start), end);
       thread->stats.FinishedSingleOp();
     }
