@@ -49,3 +49,36 @@ $RECYCLE.BIN/
 __pycache__/
 *.pyc
 *.pyo
+
+
+# ── Node.js / npm / frontend ─────────────────────────────────
+
+# Dependencies (NEVER commit)
+node_modules/
+
+# Build outputs (React/Vite)
+dist/
+build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Cache directories
+.cache/
+.vite/
+.eslintcache
+
+# TypeScript build info
+*.tsbuildinfo
+
+# OS temp files (extra safety)
+*.swp
+*.swo

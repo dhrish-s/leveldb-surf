@@ -30,7 +30,7 @@ function App() {
     async function loadData() {
       try {
         setError(null);
-        
+
         // Check health first
         const isHealthy = await fetchHealth();
         if (!isHealthy) {

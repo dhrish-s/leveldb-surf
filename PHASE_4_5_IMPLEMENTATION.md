@@ -59,7 +59,7 @@ dashboard-ui/                      # Phase 5: Frontend dashboard
 JSONL File (from db_bench)
     ↓
 metrics-parser.js (parseJsonlFile)
-    ↓ 
+    ↓
 MetricsEvent[] in memory
     ↓
 summary-calculator.js (computeSummary)
@@ -108,17 +108,17 @@ Express.js listening on PORT (default 3001)
 - **GET /api/health**
   - Response: `{ status: "ok" }`
   - Used to verify backend is running
-  
+
 - **GET /api/meta**
   - Response: Metadata about loaded data
   - Fields: total_events, filter_types[], query_types[], benchmark_names[], timestamp
   - Used by frontend to populate filter dropdowns
-  
+
 - **GET /api/summary**
   - Response: Aggregated Summary object (see computeSummary above)
   - Query params: None (always returns full dataset summary)
   - Used for aggregate stat cards
-  
+
 - **GET /api/events**
   - Query params: `filter_type`, `query_type`, `benchmark_name`, `limit`
   - Query example: `/api/events?filter_type=bloom&limit=500`
@@ -287,7 +287,7 @@ Main application component orchestrating the entire dashboard:
   - `filters`: Current filter selections (filter_type, query_type, benchmark_name, limit)
   - `loading`: Data fetch in progress
   - `error`: Error message if failed
-  
+
 - useEffect hook for data loading:
   - Runs on component mount
   - Dependency: `filters` (re-runs when user changes filters)
@@ -297,7 +297,7 @@ Main application component orchestrating the entire dashboard:
     3. Set loading done
   - Sets up 2-second polling interval
   - Cleans up interval on unmount
-  
+
 - Component composition:
   - Always show Header
   - Show health error if backend not responding

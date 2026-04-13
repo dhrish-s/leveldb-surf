@@ -55,10 +55,10 @@ function computeSummary(events) {
       latencies.push(event.latency_us);
       const ft = event.filter_type || 'unknown';
       const qt = event.query_type || 'unknown';
-      
+
       if (!latenciesByFilterType[ft]) latenciesByFilterType[ft] = [];
       if (!latenciesByQueryType[qt]) latenciesByQueryType[qt] = [];
-      
+
       latenciesByFilterType[ft].push(event.latency_us);
       latenciesByQueryType[qt].push(event.latency_us);
     }
