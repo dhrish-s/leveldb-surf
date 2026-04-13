@@ -136,6 +136,9 @@ static bool FLAGS_compression = true;
 // Use the db with the following name.
 static const char* FLAGS_db = nullptr;
 
+// Optional JSONL metrics output file path.
+static const char* FLAGS_metrics_out = nullptr;
+
 // ZSTD compression level to try out
 static int FLAGS_zstd_compression_level = 1;
 
@@ -178,6 +181,72 @@ class CountComparator : public Comparator {
   mutable std::atomic<size_t> count_{0};
   const Comparator* const wrapped_;
 };
+
+}  // namespace
+
+class JsonlWriter {
+ public:
+  JsonlWriter() : file_(nullptr) {}
+  ~JsonlWriter() { Close(); }
+
+  bool Open(const char* path) {
+    file_ = std::fopen(path, "w");
+    return file_ != nullptr;
+  }
+
+  void Close() {
+    if (file_ != nullptr) {
+      std::fclose(file_);
+      file_ = nullptr;
+    }
+  }
+
+  bool IsOpen() const { return file_ != nullptr; }
+
+  bool WriteLine(const std::string& json_line) {
+    if (file_ == nullptr) {
+      return false;
+    }
+    if (std::fputs(json_line.c_str(), file_) == EOF) {
+      return false;
+    }
+    if (std::fputc('\n', file_) == EOF) {
+      return false;
+    }
+    return std::fflush(file_) == 0;
+  }
+
+  static std::string EscapeString(const std::string& value) {
+    std::string escaped;
+    escaped.reserve(value.size() + 8);
+    for (unsigned char c : value) {
+      switch (c) {
+        case '"': escaped.append("\\\""); break;
+        case '\\': escaped.append("\\\\"); break;
+        case '\b': escaped.append("\\b"); break;
+        case '\f': escaped.append("\\f"); break;
+        case '\n': escaped.append("\\n"); break;
+        case '\r': escaped.append("\\r"); break;
+        case '\t': escaped.append("\\t"); break;
+        default:
+          if (c < 0x20) {
+            char buf[7];
+            std::snprintf(buf, sizeof(buf), "\\u%04x", c);
+            escaped.append(buf);
+          } else {
+            escaped.push_back(c);
+          }
+          break;
+      }
+    }
+    return escaped;
+  }
+
+ private:
+  FILE* file_;
+};
+
+namespace {
 
 // Helper for quickly generating random data.
 class RandomGenerator {
@@ -456,6 +525,7 @@ class Benchmark {
   int heap_counter_;
   CountComparator count_comparator_;
   int total_thread_count_;
+  JsonlWriter* metrics_writer_;
 
   void PrintHeader() {
     const int kKeySize = 16 + FLAGS_key_prefix;
@@ -554,7 +624,8 @@ class Benchmark {
         reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
         heap_counter_(0),
         count_comparator_(BytewiseComparator()),
-        total_thread_count_(0) {
+        total_thread_count_(0),
+        metrics_writer_(nullptr) {
     std::vector<std::string> files;
     g_env->GetChildren(FLAGS_db, &files);
     for (size_t i = 0; i < files.size(); i++) {
@@ -572,6 +643,8 @@ class Benchmark {
     delete cache_;
     delete filter_policy_;
   }
+
+  void SetMetricsWriter(JsonlWriter* writer) { metrics_writer_ = writer; }
 
   void Run() {
     PrintHeader();
@@ -1282,9 +1355,10 @@ int main(int argc, char** argv) {
       FLAGS_open_files = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
-    // SuRF: parse --filter flag for switching between bloom and surf
     } else if (strncmp(argv[i], "--filter=", 9) == 0) {
       FLAGS_filter = argv[i] + 9;
+    } else if (strncmp(argv[i], "--metrics_out=", 14) == 0) {
+      FLAGS_metrics_out = argv[i] + 14;
     } else {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);
@@ -1300,7 +1374,16 @@ int main(int argc, char** argv) {
     FLAGS_db = default_db_path.c_str();
   }
 
+  leveldb::JsonlWriter metrics_writer;
+  if (FLAGS_metrics_out != nullptr) {
+    if (!metrics_writer.Open(FLAGS_metrics_out)) {
+      std::fprintf(stderr, "Cannot open metrics output file '%s'\n", FLAGS_metrics_out);
+      std::exit(1);
+    }
+  }
+
   leveldb::Benchmark benchmark;
+  benchmark.SetMetricsWriter(FLAGS_metrics_out ? &metrics_writer : nullptr);
   benchmark.Run();
   return 0;
 }
