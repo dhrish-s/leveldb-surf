@@ -228,8 +228,16 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
     BlockHandle handle;
     if (filter != nullptr && handle.DecodeFrom(&handle_value).ok() &&
         !filter->KeyMayMatch(handle.offset(), k)) {
+      if (options.metrics_counters) {
+        options.metrics_counters->considered++;
+        options.metrics_counters->pruned++;
+      }
       // Not found
     } else {
+      if (options.metrics_counters) {
+        options.metrics_counters->considered++;
+        options.metrics_counters->opened++;
+      }
       Iterator* block_iter = BlockReader(this, options, iiter->value());
       block_iter->Seek(k);
       if (block_iter->Valid()) {

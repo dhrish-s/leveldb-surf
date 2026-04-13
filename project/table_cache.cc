@@ -95,11 +95,21 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
 
   //SuRF range check - added for SuRF
   if (!lo.empty() && !hi.empty()) {
-  if (!table->RangeMayMatch(lo, hi)) {
-    cache_->Release(handle);
-    return NewEmptyIterator();
+    if (options.metrics_counters) {
+      options.metrics_counters->considered++;
+    }
+    if (!table->RangeMayMatch(lo, hi)) {
+      if (options.metrics_counters) {
+        options.metrics_counters->pruned++;
+      }
+      cache_->Release(handle);
+      return NewEmptyIterator();
+    } else {
+      if (options.metrics_counters) {
+        options.metrics_counters->opened++;
+      }
+    }
   }
-}
 
   Iterator* result = table->NewIterator(options);
   result->RegisterCleanup(&UnrefEntry, cache_, handle);

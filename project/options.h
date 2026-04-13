@@ -148,6 +148,13 @@ struct LEVELDB_EXPORT Options {
   const FilterPolicy* filter_policy = nullptr;
 };
 
+// Metrics counters for benchmarking filter performance
+struct MetricsCounters {
+  int considered = 0;
+  int pruned = 0;
+  int opened = 0;
+};
+
 // Options that control read operations
 struct LEVELDB_EXPORT ReadOptions {
   // If true, all data read from underlying storage will be
@@ -171,6 +178,9 @@ struct LEVELDB_EXPORT ReadOptions {
   // Leave empty (default) for normal point queries — no change in behavior
   Slice lo;
   Slice hi;
+
+  // Optional metrics counters for benchmarking
+  MetricsCounters* metrics_counters = nullptr;
 };
 
 // Options that control write operations

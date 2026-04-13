@@ -652,7 +652,7 @@ class Benchmark {
   void RecordQueryEvent(const char* benchmark_name, const char* query_type,
                         const Slice* lo, const Slice* hi,
                         bool actual_match, double latency_us,
-                        int64_t timestamp_us) {
+                        int64_t timestamp_us, const MetricsCounters* counters = nullptr) {
     if (metrics_writer_ == nullptr) {
       return;
     }
@@ -678,6 +678,27 @@ class Benchmark {
     }
     line += ",\"actual_match\":" +
             std::string(actual_match ? "true" : "false");
+    if (counters != nullptr) {
+      if (strcmp(query_type, "range_scan") == 0) {
+        // For range_scan: filter_may_match indicates if any SSTable passed RangeMayMatch
+        line += ",\"filter_may_match\":" +
+                std::string(counters->opened > 0 ? "true" : "false");
+      } else if (strcmp(query_type, "point_get") == 0) {
+        // For point_get: filter_may_match indicates if the data block passed KeyMayMatch
+        line += ",\"filter_may_match\":" +
+                std::string(counters->opened > 0 ? "true" : "false");
+        // false_positive: only computed for point_get when reliable (filter said yes but no key found)
+        line += ",\"false_positive\":" +
+                std::string((counters->opened > 0 && !actual_match) ? "true" : "false");
+      }
+      // sstables_considered/pruned/opened: semantic difference by query_type
+      // - range_scan: counts SSTables (files)
+      // - point_get: counts data blocks within the SSTable
+      // - other query_types: not counted
+      line += ",\"sstables_considered\":" + std::to_string(counters->considered);
+      line += ",\"sstables_pruned\":" + std::to_string(counters->pruned);
+      line += ",\"sstables_opened\":" + std::to_string(counters->opened);
+    }
     line += "}";
 
     {
@@ -1074,6 +1095,8 @@ class Benchmark {
     for (int i = 0; i < reads_; i++) {
       const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
+      MetricsCounters counters;
+      options.metrics_counters = &counters;
       int64_t start = g_env->NowMicros();
       bool ok = db_->Get(options, key.slice(), &value).ok();
       int64_t end = g_env->NowMicros();
@@ -1081,7 +1104,7 @@ class Benchmark {
         found++;
       }
       RecordQueryEvent("readrandom", "point_get", nullptr, nullptr, ok,
-                       static_cast<double>(end - start), end);
+                       static_cast<double>(end - start), end, &counters);
       thread->stats.FinishedSingleOp();
     }
     char msg[100];
@@ -1097,11 +1120,13 @@ class Benchmark {
       const int k = thread->rand.Uniform(FLAGS_num);
       key.Set(k);
       Slice s = Slice(key.slice().data(), key.slice().size() - 1);
+      MetricsCounters counters;
+      options.metrics_counters = &counters;
       int64_t start = g_env->NowMicros();
       bool ok = db_->Get(options, s, &value).ok();
       int64_t end = g_env->NowMicros();
       RecordQueryEvent("readmissing", "point_get", nullptr, nullptr, ok,
-                       static_cast<double>(end - start), end);
+                       static_cast<double>(end - start), end, &counters);
       thread->stats.FinishedSingleOp();
     }
   }
@@ -1114,11 +1139,13 @@ class Benchmark {
     for (int i = 0; i < reads_; i++) {
       const int k = thread->rand.Uniform(range);
       key.Set(k);
+      MetricsCounters counters;
+      options.metrics_counters = &counters;
       int64_t start = g_env->NowMicros();
       bool ok = db_->Get(options, key.slice(), &value).ok();
       int64_t end = g_env->NowMicros();
       RecordQueryEvent("readhot", "point_get", nullptr, nullptr, ok,
-                       static_cast<double>(end - start), end);
+                       static_cast<double>(end - start), end, &counters);
       thread->stats.FinishedSingleOp();
     }
   }
@@ -1222,6 +1249,8 @@ class Benchmark {
       // in AddIterators → TableCache::NewIterator
       options.lo = lo_key.slice();
       options.hi = hi_key.slice();
+      MetricsCounters counters;
+      options.metrics_counters = &counters;
 
       int64_t start = g_env->NowMicros();
       Iterator* iter = db_->NewIterator(options);
@@ -1242,7 +1271,7 @@ class Benchmark {
       Slice hi_slice = hi_key.slice();
       RecordQueryEvent(benchmark_name, "range_scan", &lo_slice,
                        &hi_slice, scanned > 0,
-                       static_cast<double>(end - start), end);
+                       static_cast<double>(end - start), end, &counters);
       thread->stats.FinishedSingleOp();
     }
 
