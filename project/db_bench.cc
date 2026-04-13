@@ -39,6 +39,16 @@
 //      seekordered   -- N ordered seeks
 //      open          -- cost of opening a DB
 //      crc32c        -- repeated crc32c of 4K of data
+//
+//   SuRF: range scan benchmarks (added for SuRF project)
+//      surfscan      -- range scan with 100% miss rate (all empty ranges)
+//      surfscan100   -- range scan with 100% miss rate
+//      surfscan75    -- range scan with 75% miss rate, 25% hit
+//      surfscan50    -- range scan with 50% miss rate, 50% hit
+//      surfscan25    -- range scan with 25% miss rate, 75% hit
+//      surfscan0     -- range scan with 0% miss rate (all ranges hit keys)
+//      surfscan_wide -- range scan with 100% miss, wide range (width=100)
+//
 //   Meta operations:
 //      compact     -- Compact the entire DB
 //      stats       -- Print DB stats
@@ -128,6 +138,14 @@ static const char* FLAGS_db = nullptr;
 
 // ZSTD compression level to try out
 static int FLAGS_zstd_compression_level = 1;
+
+// SuRF: filter type selection flag
+// "bloom" = original Bloom filter (10 bits/key)
+// "surf"  = SuRF range filter
+// Allows switching filters from command line without recompiling:
+//   ./db_bench --filter=surf --benchmarks=fillrandom,surfscan100
+//   ./db_bench --filter=bloom --benchmarks=fillrandom,surfscan100
+static const char* FLAGS_filter = "bloom";
 
 namespace leveldb {
 
@@ -456,6 +474,8 @@ class Benchmark {
         (((kKeySize + FLAGS_value_size * FLAGS_compression_ratio) * num_) /
          1048576.0));
     PrintWarnings();
+    // SuRF: print which filter is active so benchmark output is self-documenting
+    std::fprintf(stdout, "Filter:     %s\n", FLAGS_filter);
     std::fprintf(stdout, "------------------------------------------------\n");
   }
 
@@ -520,7 +540,13 @@ class Benchmark {
  public:
   Benchmark()
       : cache_(FLAGS_cache_size >= 0 ? NewLRUCache(FLAGS_cache_size) : nullptr),
-        filter_policy_(NewBloomFilterPolicy(10)),
+        // SuRF: select filter based on --filter flag
+        // "surf"  -> NewSuRFFilterPolicy() for range query support
+        // "bloom" -> NewBloomFilterPolicy(10) original Bloom filter
+        // This avoids recompiling to switch filters during benchmarking
+        filter_policy_(strcmp(FLAGS_filter, "surf") == 0
+                           ? NewSuRFFilterPolicy()
+                           : NewBloomFilterPolicy(10)),
         db_(nullptr),
         num_(FLAGS_num),
         value_size_(FLAGS_value_size),
@@ -613,10 +639,36 @@ class Benchmark {
         method = &Benchmark::SeekRandom;
       } else if (name == Slice("seekordered")) {
         method = &Benchmark::SeekOrdered;
-      //added for SuRF
-      } else if (name == Slice("surfscan")) {
-      method = &Benchmark::SuRFRangeScan;
-
+      // ================================================================
+      // SuRF: range scan benchmarks with variable miss rates
+      // Each benchmark generates queries where X% land outside inserted
+      // key range (guaranteed empty = miss) and (100-X)% land inside
+      // (likely to find keys = hit).
+      //
+      // surfscan / surfscan100 : 100% miss — all queries above key space
+      // surfscan75             :  75% miss — 3/4 queries above key space
+      // surfscan50             :  50% miss — half above, half inside
+      // surfscan25             :  25% miss — 1/4 above, 3/4 inside
+      // surfscan0              :   0% miss — all queries inside key space
+      // surfscan_wide          : 100% miss — wide range (width=100 keys)
+      //
+      // SuRF advantage increases with miss rate: higher miss rate means
+      // more SSTables can be skipped via RangeMayMatch returning false.
+      // ================================================================
+      } else if (name == Slice("surfscan") || name == Slice("surfscan100")) {
+        method = &Benchmark::SuRFRangeScan100;
+      } else if (name == Slice("surfscan75")) {
+        method = &Benchmark::SuRFRangeScan75;
+      } else if (name == Slice("surfscan50")) {
+        method = &Benchmark::SuRFRangeScan50;
+      } else if (name == Slice("surfscan25")) {
+        method = &Benchmark::SuRFRangeScan25;
+      } else if (name == Slice("surfscan0")) {
+        method = &Benchmark::SuRFRangeScan0;
+      } else if (name == Slice("surfscan_wide")) {
+        method = &Benchmark::SuRFRangeScanWide;
+      // SuRF: end of range scan benchmarks
+      // ================================================================
       } else if (name == Slice("readhot")) {
         method = &Benchmark::ReadHot;
       } else if (name == Slice("readrandomsmall")) {
@@ -974,47 +1026,116 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
-// added for SuRF
-// SuRF: range scan benchmark that exercises RangeMayMatch
-// Sets explicit lo/hi bounds in ReadOptions so AddIterators calls RangeMayMatch
-// With range=100 keys out of 1M, most ranges land in gaps -> SuRF skips SSTables
-void SuRFRangeScan(ThreadState* thread) {
-  ReadOptions options;
-  int found = 0;
-  int total_scanned = 0;
-  KeyBuffer lo_key;
-  KeyBuffer hi_key;
+  // ====================================================================
+  // SuRF: range scan benchmarks
+  //
+  // Core logic: DoSuRFRangeScan() performs range scans with a configurable
+  // miss percentage and range width.
+  //
+  // miss_pct controls what fraction of queries target empty ranges:
+  //   - miss query:  k = FLAGS_num + rand(FLAGS_num)  → above all inserted keys
+  //   - hit query:   k = rand(FLAGS_num)              → inside inserted key range
+  //
+  // range_width controls how many keys wide each query range is:
+  //   - narrow (10):  more selective, more likely to miss → benefits SuRF more
+  //   - wide (100):   less selective, shows SuRF on broader queries
+  //
+  // The lo/hi bounds are set in ReadOptions, which activates RangeMayMatch
+  // in AddIterators → TableCache::NewIterator → table->RangeMayMatch(lo, hi).
+  // Without lo/hi, RangeMayMatch is never called (this is why seekrandom
+  // shows no SuRF advantage).
+  // ====================================================================
+  void DoSuRFRangeScan(ThreadState* thread, int miss_pct, int range_width) {
+    ReadOptions options;
+    int found = 0;
+    int total_scanned = 0;
+    int miss_count = 0;
+    int hit_count = 0;
+    KeyBuffer lo_key;
+    KeyBuffer hi_key;
 
-  for (int i = 0; i < reads_; i++) {
-    const int k = FLAGS_num + thread->rand.Uniform(FLAGS_num);
-    lo_key.Set(k);
-    const int hi_k = k + 10;
-    hi_key.Set(hi_k);
+    for (int i = 0; i < reads_; i++) {
+      int k;
+      // SuRF: decide whether this query is a miss (empty range) or hit
+      // miss: query range starts above all inserted keys → guaranteed empty
+      // hit:  query range starts inside inserted key space → likely finds keys
+      if (miss_pct >= 100 || (miss_pct > 0 && thread->rand.Uniform(100) < static_cast<unsigned int>(miss_pct))) {
+        // Miss: query above all inserted keys (FLAGS_num to 2*FLAGS_num)
+        k = FLAGS_num + thread->rand.Uniform(FLAGS_num);
+        miss_count++;
+      } else {
+        // Hit: query inside inserted key range (0 to FLAGS_num-1)
+        k = thread->rand.Uniform(FLAGS_num);
+        hit_count++;
+      }
 
-    // Set range bounds - this is what activates RangeMayMatch in AddIterators
-    options.lo = lo_key.slice();
-    options.hi = hi_key.slice();
+      lo_key.Set(k);
+      const int hi_k = k + range_width;
+      hi_key.Set(hi_k);
 
-    Iterator* iter = db_->NewIterator(options);
-    iter->Seek(lo_key.slice());
+      // SuRF: set range bounds — this is what activates RangeMayMatch
+      // in AddIterators → TableCache::NewIterator
+      options.lo = lo_key.slice();
+      options.hi = hi_key.slice();
 
-    int scanned = 0;
-    while (iter->Valid() &&
-           iter->key().compare(hi_key.slice()) <= 0 &&
-           scanned < 100) {
-      found++;
-      scanned++;
-      iter->Next();
+      Iterator* iter = db_->NewIterator(options);
+      iter->Seek(lo_key.slice());
+
+      int scanned = 0;
+      while (iter->Valid() &&
+             iter->key().compare(hi_key.slice()) <= 0 &&
+             scanned < 100) {
+        found++;
+        scanned++;
+        iter->Next();
+      }
+      total_scanned += scanned;
+      delete iter;
+      thread->stats.FinishedSingleOp();
     }
-    total_scanned += scanned;
-    delete iter;
-    thread->stats.FinishedSingleOp();
+
+    char msg[200];
+    std::snprintf(msg, sizeof(msg),
+                  "(%d keys scanned, miss=%d hit=%d, width=%d)",
+                  total_scanned, miss_count, hit_count, range_width);
+    thread->stats.AddMessage(msg);
   }
 
-  char msg[100];
-  std::snprintf(msg, sizeof(msg), "(%d keys scanned in ranges)", total_scanned);
-  thread->stats.AddMessage(msg);
-}
+  // SuRF: 100% miss rate — all queries above inserted key range
+  // This is the best case for SuRF: every SSTable can potentially be skipped
+  void SuRFRangeScan100(ThreadState* thread) {
+    DoSuRFRangeScan(thread, /*miss_pct=*/100, /*range_width=*/10);
+  }
+
+  // SuRF: 75% miss rate — 3 out of 4 queries are empty ranges
+  // Realistic for time-series workloads querying recent windows
+  void SuRFRangeScan75(ThreadState* thread) {
+    DoSuRFRangeScan(thread, /*miss_pct=*/75, /*range_width=*/10);
+  }
+
+  // SuRF: 50% miss rate — half queries empty, half hit keys
+  // Balanced workload showing intermediate SuRF benefit
+  void SuRFRangeScan50(ThreadState* thread) {
+    DoSuRFRangeScan(thread, /*miss_pct=*/50, /*range_width=*/10);
+  }
+
+  // SuRF: 25% miss rate — most queries find keys, few are empty
+  // SuRF advantage should be small here since most ranges hit data
+  void SuRFRangeScan25(ThreadState* thread) {
+    DoSuRFRangeScan(thread, /*miss_pct=*/25, /*range_width=*/10);
+  }
+
+  // SuRF: 0% miss rate — all queries inside inserted key range
+  // Worst case for SuRF: no SSTables can be skipped, SuRF overhead visible
+  void SuRFRangeScan0(ThreadState* thread) {
+    DoSuRFRangeScan(thread, /*miss_pct=*/0, /*range_width=*/10);
+  }
+
+  // SuRF: 100% miss rate with wide range (100 keys instead of 10)
+  // Tests whether SuRF advantage holds on broader range queries
+  void SuRFRangeScanWide(ThreadState* thread) {
+    DoSuRFRangeScan(thread, /*miss_pct=*/100, /*range_width=*/100);
+  }
 
   void DoDelete(ThreadState* thread, bool seq) {
     RandomGenerator gen;
@@ -1161,6 +1282,9 @@ int main(int argc, char** argv) {
       FLAGS_open_files = n;
     } else if (strncmp(argv[i], "--db=", 5) == 0) {
       FLAGS_db = argv[i] + 5;
+    // SuRF: parse --filter flag for switching between bloom and surf
+    } else if (strncmp(argv[i], "--filter=", 9) == 0) {
+      FLAGS_filter = argv[i] + 9;
     } else {
       std::fprintf(stderr, "Invalid flag '%s'\n", argv[i]);
       std::exit(1);
