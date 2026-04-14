@@ -705,9 +705,9 @@ If C++ source code changed, run `bash /workspace/benchmarks/rebuild.sh` before b
 **2. Start backend on host machine:**
 ```bash
 cd "path-to-repo/dashboard-server"
-node index.js  # uses bloom_fixcheck.jsonl by default
-# Or to use SuRF results:
-METRICS_FILE=./metrics/surf_fixcheck.jsonl node index.js
+$env:METRICS_FILE="../metrics/bloom_fixcheck.jsonl" # change bloom to surf to use that instead
+$env:PORT="3001"
+npm start
 ```
 
 **3. Start frontend and open dashboard:**
