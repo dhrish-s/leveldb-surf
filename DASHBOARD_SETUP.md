@@ -99,10 +99,12 @@ The frontend will display:
 
 ## Restart Workflow from Scratch
 
+Assume all commands are run from the repository root directory.
+
 ### Terminal 1 — inside container
 - Start in repo root on host machine:
   ```bash
-  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf"
+  cd <repo-root>
   ```
 - Start container with mounts:
   ```bash
@@ -136,7 +138,7 @@ The frontend will display:
 ### Terminal 2 — backend outside Docker
 - Go to repo root on host machine:
   ```bash
-  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf"
+  cd <repo-root>
   ```
 - Start backend with Bloom metrics:
   ```powershell
@@ -148,7 +150,7 @@ The frontend will display:
 - To switch to SuRF later:
   ```powershell
   stop backend with Ctrl + C
-  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf\dashboard-server"
+  cd <repo-root>/dashboard-server
   $env:METRICS_FILE="../metrics/surf_fixcheck.jsonl"
   $env:PORT="3001"
   npm start
@@ -157,7 +159,7 @@ The frontend will display:
 ### Terminal 3 — frontend outside Docker
 - Go to repo root on host machine:
   ```bash
-  cd "C:\Users\jahna\csci 543 proj 2\leveldb-surf"
+  cd <repo-root>
   ```
 - Start frontend:
   ```bash
