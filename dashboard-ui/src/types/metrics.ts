@@ -6,6 +6,7 @@ export interface MetricsEvent {
   latency_us: number;
   timestamp_us: number;
   actual_match: boolean;
+  source: string;
   query_lo?: string;
   query_hi?: string;
   filter_may_match?: boolean;
@@ -37,7 +38,8 @@ export interface Summary {
 }
 
 export interface Meta {
-  metrics_file: string;
+  sources: Record<string, string>;
+  available_sources: string[];
   total_lines_read: number;
   malformed_lines_skipped: number;
   total_events: number;
@@ -47,9 +49,8 @@ export interface Meta {
   available_benchmark_names: string[];
 }
 
-export interface FilterState {
-  filter_type: string;
-  query_type: string;
-  benchmark_name: string;
-  limit: number;
+export interface CompareSummary {
+  overall: Summary;
+  bloom?: Summary;
+  surf?: Summary;
 }

@@ -6,10 +6,12 @@ import { ChevronDown } from 'lucide-react';
 interface EventTableProps {
   events: MetricsEvent[];
   onSelectEvent?: (event: MetricsEvent) => void;
+  mode: 'single' | 'compare';
 }
 
-export function EventTable({ events, onSelectEvent }: EventTableProps) {
+export function EventTable({ events, onSelectEvent, mode }: EventTableProps) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const isCompare = mode === 'compare';
 
   if (events.length === 0) {
     return (
@@ -29,6 +31,7 @@ export function EventTable({ events, onSelectEvent }: EventTableProps) {
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-4 py-3 text-left font-semibold text-slate-700">ID</th>
+              {isCompare && <th className="px-4 py-3 text-left font-semibold text-slate-700">Source</th>}
               <th className="px-4 py-3 text-left font-semibold text-slate-700">Benchmark</th>
               <th className="px-4 py-3 text-left font-semibold text-slate-700">Filter</th>
               <th className="px-4 py-3 text-left font-semibold text-slate-700">Query Type</th>
@@ -47,6 +50,11 @@ export function EventTable({ events, onSelectEvent }: EventTableProps) {
                     onClick={() => onSelectEvent?.(event)}
                   >
                     <td className="px-4 py-2">{event.query_id}</td>
+                    {isCompare && (
+                      <td className="px-4 py-2">
+                        <Badge text={event.source} className={event.source === 'bloom' ? 'badge-primary' : 'badge-secondary'} />
+                      </td>
+                    )}
                     <td className="px-4 py-2 text-slate-700">{event.benchmark_name}</td>
                     <td className="px-4 py-2">
                       <Badge text={event.filter_type} className={getFilterColor(event.filter_type)} />
@@ -79,7 +87,7 @@ export function EventTable({ events, onSelectEvent }: EventTableProps) {
                   </tr>
                   {isExpanded && (
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <td colSpan={7} className="px-4 py-3">
+                      <td colSpan={isCompare ? 8 : 7} className="px-4 py-3">
                         <EventDetails event={event} />
                       </td>
                     </tr>

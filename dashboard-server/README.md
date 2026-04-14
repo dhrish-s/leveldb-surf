@@ -21,13 +21,25 @@ npm install
 Set environment variables:
 
 - `METRICS_FILE`: Path to the metrics JSONL file (default: `../metrics/sample_metrics.jsonl`)
+- `METRICS_FILE_BLOOM`: Path to the Bloom metrics JSONL file
+- `METRICS_FILE_SURF`: Path to the SuRF metrics JSONL file
 - `PORT`: Server port (default: `3001`)
 
-Example:
+Example (Linux/macOS):
 
 ```bash
-export METRICS_FILE=/path/to/bloom_metrics.jsonl
+export METRICS_FILE_BLOOM="../metrics/bloom_fixcheck.jsonl"
+export METRICS_FILE_SURF="../metrics/surf_fixcheck.jsonl"
 export PORT=3001
+npm start
+```
+
+Example (PowerShell):
+
+```powershell
+$env:METRICS_FILE_BLOOM="../metrics/bloom_fixcheck.jsonl"
+$env:METRICS_FILE_SURF="../metrics/surf_fixcheck.jsonl"
+$env:PORT="3001"
 npm start
 ```
 

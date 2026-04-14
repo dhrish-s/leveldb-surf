@@ -1,75 +1,84 @@
 import React from 'react';
-import { Summary, MetricsEvent } from '../types/metrics';
-import { formatLatency, formatPercent, formatNumber, computeFilterTypeStats } from '../lib/metrics';
+import { Summary, CompareSummary, MetricsEvent } from '../types/metrics';
+import { formatLatency, formatPercent, formatNumber } from '../lib/metrics';
 import { Activity } from 'lucide-react';
 
 interface SummaryCardsProps {
-  summary: Summary | null;
-  events: MetricsEvent[];
+  summary: Summary | CompareSummary | null;
+  mode: 'single' | 'compare';
 }
 
-export function SummaryCards({ summary, events }: SummaryCardsProps) {
+export function SummaryCards({ summary, mode }: SummaryCardsProps) {
   if (!summary) return null;
 
-  const bloomStats = computeFilterTypeStats(events, 'bloom', summary);
-  const surfStats = computeFilterTypeStats(events, 'surf', summary);
+  const isCompare = mode === 'compare';
+  const compareSummary = summary as CompareSummary;
+  const singleSummary = summary as Summary;
+
+  const displaySummary = isCompare ? compareSummary.overall : singleSummary;
+  const bloomLoaded = Boolean(compareSummary.bloom);
+  const surfLoaded = Boolean(compareSummary.surf);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <Card
           title="Total Events"
-          value={summary.total_events.toLocaleString()}
+          value={displaySummary.total_events.toLocaleString()}
           icon={<Activity className="w-5 h-5 text-blue-600" />}
         />
         <Card
           title="Avg Latency"
-          value={formatLatency(summary.avg_latency_us)}
-          subtitle={`p95: ${formatLatency(summary.p95_latency_us || 0)}`}
+          value={formatLatency(displaySummary.avg_latency_us)}
+          subtitle={`p95: ${formatLatency(displaySummary.p95_latency_us || 0)}`}
         />
         <Card
           title="False Positives"
-          value={formatPercent(summary.false_positive_rate)}
-          subtitle={summary.false_positive_rate !== null ? 'of point gets' : 'N/A'}
+          value={formatPercent(displaySummary.false_positive_rate)}
+          subtitle={displaySummary.false_positive_rate !== null ? 'of point gets' : 'N/A'}
         />
         <Card
           title="Actual Match"
-          value={formatPercent(summary.actual_match_rate)}
+          value={formatPercent(displaySummary.actual_match_rate)}
         />
         <Card
           title="Filter May Match"
-          value={formatPercent(summary.filter_may_match_rate)}
+          value={formatPercent(displaySummary.filter_may_match_rate)}
         />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <Card
           title="Total Considered"
-          value={formatNumber(summary.total_considered)}
+          value={formatNumber(displaySummary.total_considered)}
         />
         <Card
           title="Total Pruned"
-          value={formatNumber(summary.total_pruned)}
+          value={formatNumber(displaySummary.total_pruned)}
         />
         <Card
           title="Total Opened"
-          value={formatNumber(summary.total_opened)}
+          value={formatNumber(displaySummary.total_opened)}
         />
       </div>
 
       {/* Bloom vs SuRF Comparison */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <ComparisonCard
-          title="Bloom Filter"
-          stats={bloomStats}
-          color="blue"
-        />
-        <ComparisonCard
-          title="SuRF Filter"
-          stats={surfStats}
-          color="purple"
-        />
-      </div>
+      {isCompare && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <ComparisonCard
+            title="Bloom Filter"
+            stats={compareSummary.bloom}
+            loaded={bloomLoaded}
+            color="blue"
+          />
+          <ComparisonCard
+            title="SuRF Filter"
+            stats={compareSummary.surf}
+            loaded={surfLoaded}
+            color="purple"
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -100,10 +109,12 @@ function Card({
 function ComparisonCard({
   title,
   stats,
+  loaded,
   color,
 }: {
   title: string;
-  stats: Partial<Summary>;
+  stats?: Partial<Summary>;
+  loaded: boolean;
   color: 'blue' | 'purple';
 }) {
   const bgColor = color === 'blue' ? 'bg-blue-50 border-blue-200' : 'bg-purple-50 border-purple-200';
@@ -112,24 +123,28 @@ function ComparisonCard({
   return (
     <div className={`card p-6 border ${bgColor}`}>
       <h3 className={`text-lg font-semibold mb-4 ${textColor}`}>{title}</h3>
-      <div className="space-y-3">
-        <ComparisonStat
-          label="Count"
-          value={stats.total_events?.toLocaleString() || '0'}
-        />
-        <ComparisonStat
-          label="Avg Latency"
-          value={formatLatency(stats.avg_latency_us || 0)}
-        />
-        <ComparisonStat
-          label="p95 Latency"
-          value={formatLatency(stats.p95_latency_us || 0)}
-        />
-        <ComparisonStat
-          label="False Positives"
-          value={formatPercent(stats.false_positive_rate || null)}
-        />
-      </div>
+      {!loaded ? (
+        <p className="text-sm text-slate-600">Source not loaded</p>
+      ) : (
+        <div className="space-y-3">
+          <ComparisonStat
+            label="Count"
+            value={stats?.total_events?.toLocaleString() || '0'}
+          />
+          <ComparisonStat
+            label="Avg Latency"
+            value={formatLatency(stats?.avg_latency_us || 0)}
+          />
+          <ComparisonStat
+            label="p95 Latency"
+            value={formatLatency(stats?.p95_latency_us || 0)}
+          />
+          <ComparisonStat
+            label="False Positives"
+            value={formatPercent(stats?.false_positive_rate || null)}
+          />
+        </div>
+      )}
     </div>
   );
 }
