@@ -4,33 +4,52 @@ const { computeSummary } = require('./summary-calculator');
 /**
  * Get events for a specific source or all sources
  */
+function compareEventsByTimestamp(a, b) {
+  const aTime = typeof a.timestamp_us === 'number' ? a.timestamp_us : Number.POSITIVE_INFINITY;
+  const bTime = typeof b.timestamp_us === 'number' ? b.timestamp_us : Number.POSITIVE_INFINITY;
+  if (aTime !== bTime) {
+    return aTime - bTime;
+  }
+  const aId = typeof a.query_id === 'number' ? a.query_id : 0;
+  const bId = typeof b.query_id === 'number' ? b.query_id : 0;
+  return aId - bId;
+}
+
 function getEventsForSource(state, source) {
   if (source === 'all') {
+    const sourceEntries = Object.entries(state.sources).map(([key, src]) => ({
+      key,
+      filePath: src?.filePath,
+      eventsType: src?.events === undefined ? 'missing' : Array.isArray(src.events) ? 'array' : typeof src.events,
+      eventsLength: Array.isArray(src?.events) ? src.events.length : null,
+      totalLines: src?.totalLines,
+      malformedLines: src?.malformedLines,
+    }));
+    console.log('DEBUG getEventsForSource(all): sourceEntries=', JSON.stringify(sourceEntries));
+
     const allEvents = [];
     for (const sourceKey of Object.keys(state.sources)) {
       const src = state.sources[sourceKey];
       if (src && Array.isArray(src.events)) {
-        allEvents.push(...src.events);
+        for (const event of src.events) {
+          allEvents.push(event);
+        }
+      } else {
+        console.log(`DEBUG getEventsForSource(all): skipping invalid source entry ${sourceKey}`, src);
       }
     }
 
-    // Sort by timestamp_us ascending, fall back to query_id if needed
-    return allEvents.slice().sort((a, b) => {
-      const aTime = typeof a.timestamp_us === 'number' ? a.timestamp_us : Number.POSITIVE_INFINITY;
-      const bTime = typeof b.timestamp_us === 'number' ? b.timestamp_us : Number.POSITIVE_INFINITY;
-      if (aTime !== bTime) {
-        return aTime - bTime;
-      }
-      const aId = typeof a.query_id === 'number' ? a.query_id : 0;
-      const bId = typeof b.query_id === 'number' ? b.query_id : 0;
-      return aId - bId;
-    });
+    console.log('DEBUG getEventsForSource(all): merged event count=', allEvents.length);
+    return allEvents;
   }
 
-  if (state.sources[source] && Array.isArray(state.sources[source].events)) {
-    return state.sources[source].events;
+  const sourceEntry = state.sources[source];
+  if (sourceEntry && Array.isArray(sourceEntry.events)) {
+    console.log(`DEBUG getEventsForSource(${source}): returning ${sourceEntry.events.length} events`);
+    return sourceEntry.events;
   }
 
+  console.log(`DEBUG getEventsForSource(${source}): source missing or invalid`, sourceEntry);
   return [];
 }
 
@@ -142,8 +161,11 @@ function setupRoutes(app, state) {
       events = events.filter(e => e.benchmark_name === req.query.benchmark_name);
     }
 
-    // Apply limit
-    const limit = parseInt(req.query.limit) || events.length;
+    // Apply limit and sorting only when needed
+    const limit = parseInt(req.query.limit, 10) || events.length;
+    if (limit < events.length || source === 'all') {
+      events = events.slice().sort(compareEventsByTimestamp);
+    }
     events = events.slice(-limit); // Return most recent
 
     res.json({
