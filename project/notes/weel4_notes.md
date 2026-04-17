@@ -1,4 +1,4 @@
-# Week 4 Notes — Benchmarking and Performance Optimization
+# Week 4 Notes - Benchmarking and Performance Optimization
 # File: project/notes/week4_notes.md
 
 
@@ -12,12 +12,12 @@ workload.
 
 ---
 
-## filter_block.cc Fix — Single Filter Per SSTable
+## filter_block.cc Fix - Single Filter Per SSTable
 
 ### The 2KB Problem (Deferred From Week 2, Fixed Week 4)
 
 `FilterBlockBuilder::StartBlock()` calls `GenerateFilter()` every 2KB of data.
-This creates many small SuRF tries per SSTable — one per 2KB chunk with only
+This creates many small SuRF tries per SSTable - one per 2KB chunk with only
 10-50 keys each.
 
 **Why this was catastrophic:**
@@ -26,7 +26,7 @@ number of keys to produce valid serialized bytes. With 10-50 keys, the trie
 is so small that `deSerialize()` crashes with a segfault or FPE when the
 `uint64_t*` cast encounters misaligned or invalid data.
 
-**The fix — `filter_block.cc`:**
+**The fix - `filter_block.cc`:**
 
 `StartBlock()` changed to do nothing (no longer calls `GenerateFilter`):
 ```cpp
@@ -72,13 +72,13 @@ No changes needed to `FilterBlockReader`.
 **`filter_block_test.cc` updates:**
 - `EmptyBuilder`: expected bytes stay as `\x00\x00\x00\x00\x0b` because the
   empty case uses the original format (safe fallback)
-- `MultiChunk`: updated to expect ALL keys visible from ALL offsets — correct
+- `MultiChunk`: updated to expect ALL keys visible from ALL offsets - correct
   behavior for a single combined filter. Previously tested per-block isolation
   which was Bloom-specific behavior
 
 ---
 
-## The Alignment Bug — Why `deSerialize` Crashed
+## The Alignment Bug - Why `deSerialize` Crashed
 
 `SuRF::deSerialize(char* src)` internally casts `src` to `uint64_t*`:
 ```cpp
@@ -101,21 +101,21 @@ surf::SuRF* surf_obj = surf::SuRF::deSerialize(src);
 
 ---
 
-## Performance Problem — Per-Call Deserialization
+## Performance Problem - Per-Call Deserialization
 
 Even with the alignment fix, `readrandom` was 17x slower than Bloom:
 - Every `KeyMayMatch` call: allocate `std::string` (42KB), copy, deserialize
   full SuRF trie, lookup, destroy
-- Bloom: 2 hash operations, check 2 bits — nanoseconds
+- Bloom: 2 hash operations, check 2 bits - nanoseconds
 - SuRF per-call: microseconds
 
-**Fix — `thread_local` cache in `surf_filter.cc`:**
+**Fix - `thread_local` cache in `surf_filter.cc`:**
 ```cpp
 thread_local const char* last_filter_ptr = nullptr;
 thread_local surf::SuRF* cached_surf = nullptr;
 
 if (filter.data() != last_filter_ptr) {
-  // Different SSTable — rebuild cache
+  // Different SSTable - rebuild cache
   if (cached_surf != nullptr) { cached_surf->destroy(); delete cached_surf; }
   std::string buf(filter.data(), filter.size());
   char* src = &buf[0];
@@ -128,16 +128,16 @@ return cached_surf->lookupKey(key.ToString());
 **Why pointer comparison works:**
 `filter.data()` points into LevelDB's block cache. As long as the same
 SSTable's filter block is cached, the pointer is stable. Different SSTables
-have different pointers. This is a cheap pointer comparison — O(1) vs O(42KB
+have different pointers. This is a cheap pointer comparison - O(1) vs O(42KB
 copy) for cache hits.
 
 **Why `thread_local`:**
 Multiple threads may access the same filter concurrently. Each thread gets
-its own cached SuRF object — no mutex needed. Thread-safe by design.
+its own cached SuRF object - no mutex needed. Thread-safe by design.
 
 ---
 
-## ODR Violation — surf.hpp Header-Only Problem
+## ODR Violation - surf.hpp Header-Only Problem
 
 **Attempt:** Cache `surf::SuRF*` in `Table::Rep` struct in `table.cc`.
 
@@ -149,7 +149,7 @@ symbols.
 
 **Root cause discovered:**
 `table.h` accidentally had `#include "surf/surf.hpp"` added. This caused the
-entire problem — `table.h` is included by almost every `.cc` file in LevelDB
+entire problem - `table.h` is included by almost every `.cc` file in LevelDB
 (`version_set.cc`, `table_cache.cc`, `db_impl.cc`, `builder.cc`, etc.), so
 all of them pulled in `surf.hpp` and the linker found SuRF functions defined
 in every compilation unit.
@@ -179,7 +179,7 @@ SuRF is always used regardless of `--bloom_bits` flag.
 
 ---
 
-## `surfscan` Benchmark — Wiring `lo/hi` Through `db_impl.cc`
+## `surfscan` Benchmark - Wiring `lo/hi` Through `db_impl.cc`
 
 ### The Problem
 
@@ -190,12 +190,12 @@ SuRF is always used regardless of `--bloom_bits` flag.
 versions_->current()->AddIterators(options, &list);
 ```
 
-`lo` and `hi` are empty `Slice()` — the default. `AddIterators` receives empty
+`lo` and `hi` are empty `Slice()` - the default. `AddIterators` receives empty
 bounds, passes empty bounds to `GetFileIterator`, which passes empty bounds to
 `TableCache::NewIterator`. The guard `if (!lo.empty() && !hi.empty())` is
 never triggered. `RangeMayMatch` is never called.
 
-### Fix 1 — `include/leveldb/options.h`
+### Fix 1 - `include/leveldb/options.h`
 
 Added `lo` and `hi` fields to `ReadOptions`:
 ```cpp
@@ -210,10 +210,10 @@ struct ReadOptions {
 };
 ```
 
-Also added `#include "leveldb/slice.h"` to `options.h` — `Slice` was not
+Also added `#include "leveldb/slice.h"` to `options.h` - `Slice` was not
 previously included there and the compiler could not find the type.
 
-### Fix 2 — `db/db_impl.cc`
+### Fix 2 - `db/db_impl.cc`
 
 Changed line 1097 in `NewInternalIterator`:
 ```cpp
@@ -227,7 +227,7 @@ versions_->current()->AddIterators(options, &list, options.lo, options.hi);
 This one line change activates the entire range filter chain when a caller
 sets `options.lo` and `options.hi`.
 
-### Fix 3 — `benchmarks/db_bench.cc`
+### Fix 3 - `benchmarks/db_bench.cc`
 
 Added `SuRFRangeScan` benchmark that sets explicit `lo/hi` bounds:
 ```cpp
@@ -237,13 +237,13 @@ void SuRFRangeScan(ThreadState* thread) {
   KeyBuffer hi_key;
 
   for (int i = 0; i < reads_; i++) {
-    // Query range ABOVE all inserted keys — guaranteed empty ranges
+    // Query range ABOVE all inserted keys - guaranteed empty ranges
     const int k = FLAGS_num + thread->rand.Uniform(FLAGS_num);
     lo_key.Set(k);
     const int hi_k = k + 10;
     hi_key.Set(hi_k);
 
-    // Set lo/hi — activates RangeMayMatch in AddIterators
+    // Set lo/hi - activates RangeMayMatch in AddIterators
     options.lo = lo_key.slice();
     options.hi = hi_key.slice();
 
@@ -270,15 +270,15 @@ readseq    : 0.213 µs/op
 fillrandom : 3.953 µs/op
 ```
 
-### SuRF — Standard Benchmarks (1M keys)
+### SuRF - Standard Benchmarks (1M keys)
 ```
-fillrandom : 4.653 µs/op   (18% slower — trie build cost)
-seekrandom : 10.781 µs/op  (2.5x slower — KeyMayMatch cost, no RangeMayMatch triggered)
-readrandom : 5.606 µs/op   (52% slower — thread_local cache helps but SuRF still heavier)
-readseq    : 0.245 µs/op   (15% slower — nearly identical, sequential scan unaffected)
+fillrandom : 4.653 µs/op   (18% slower - trie build cost)
+seekrandom : 10.781 µs/op  (2.5x slower - KeyMayMatch cost, no RangeMayMatch triggered)
+readrandom : 5.606 µs/op   (52% slower - thread_local cache helps but SuRF still heavier)
+readseq    : 0.245 µs/op   (15% slower - nearly identical, sequential scan unaffected)
 ```
 
-### SuRF — surfscan benchmark (empty ranges, 1M keys)
+### SuRF - surfscan benchmark (empty ranges, 1M keys)
 ```
 Bloom surfscan: 2.102 µs/op  (0 keys found)
 SuRF  surfscan: 1.420 µs/op  (0 keys found)
@@ -290,7 +290,7 @@ SuRF is 32% faster
 ## Why SuRF Wins On surfscan
 
 Query range is set ABOVE all inserted keys (keys 0..999999, queries from
-1000000 onward). Every range is empty — no key exists there.
+1000000 onward). Every range is empty - no key exists there.
 
 ```
 Bloom: cannot answer range queries
@@ -299,14 +299,14 @@ Bloom: cannot answer range queries
   Conclude: nothing found
   Cost: full SSTable traversal per query
 
-SuRF: lookupRange(lo, hi) → false immediately
+SuRF: lookupRange(lo, hi) -> false immediately
   Skips SSTable entirely
   No data block reads
   Cost: one trie traversal per SSTable
   Result: 0 keys found (correct, no false negatives)
 ```
 
-The 0 keys scanned is NOT a bug — it is proof the filter is working
+The 0 keys scanned is NOT a bug - it is proof the filter is working
 correctly. The ranges genuinely have no keys, and SuRF never lied about it.
 
 ---
@@ -339,7 +339,7 @@ Bloom wins when: point queries, hit-heavy workloads, small datasets
 ```
 
 This matches the SIGMOD 2018 paper which tested SuRF on datasets LARGER
-than memory with many empty range queries — exactly the conditions where
+than memory with many empty range queries - exactly the conditions where
 SuRF's SSTable skipping saves disk I/O.
 
 ---
@@ -348,12 +348,12 @@ SuRF's SSTable skipping saves disk I/O.
 
 Added copy rules for new files:
 ```bash
-cp project/filter_block.cc  → table/filter_block.cc
-cp project/filter_block_test.cc → table/filter_block_test.cc
-cp project/table.h          → include/leveldb/table.h
-cp project/table.cc         → table/table.cc
-cp project/table_cache.h    → db/table_cache.h
-cp project/db_bench.cc      → benchmarks/db_bench.cc
-cp project/db_impl.cc       → db/db_impl.cc
-cp project/options.h        → include/leveldb/options.h
+cp project/filter_block.cc  -> table/filter_block.cc
+cp project/filter_block_test.cc -> table/filter_block_test.cc
+cp project/table.h          -> include/leveldb/table.h
+cp project/table.cc         -> table/table.cc
+cp project/table_cache.h    -> db/table_cache.h
+cp project/db_bench.cc      -> benchmarks/db_bench.cc
+cp project/db_impl.cc       -> db/db_impl.cc
+cp project/options.h        -> include/leveldb/options.h
 ```

@@ -1,15 +1,15 @@
 # LevelDB Source Reading Notes
-# Week 1 Part B — CSCI-543 Project 2
+# Week 1 Part B - CSCI-543 Project 2
 # Read all 8 source files before writing any code
 
 ---
 
-## B1 — filter_policy.h
+## B1 - filter_policy.h
 **Path:** include/leveldb/filter_policy.h
 
 **What it is:**
 The contract. Every filter (Bloom, SuRF, anything) must follow this interface.
-Think of it as a job description — anyone who wants to be a filter must do these exact things.
+Think of it as a job description - anyone who wants to be a filter must do these exact things.
 
 **The 3 methods that exist:**
 
@@ -17,7 +17,7 @@ Think of it as a job description — anyone who wants to be a filter must do the
 Name()
   - Returns a string name for the filter
   - Stored inside every SSTable at write time
-  - Checked at read time — if names don't match, filter is ignored silently
+  - Checked at read time - if names don't match, filter is ignored silently
   - YOUR SuRF must return "leveldb.SuRFFilter" consistently
 
 CreateFilter(keys, n, dst)
@@ -27,24 +27,24 @@ CreateFilter(keys, n, dst)
   - dst is a string you APPEND your filter bytes to
   - Bloom: hashes each key k times, sets bits in a bit array
   - SuRF: inserts all keys into SuRFBuilder, builds trie, serializes to bytes
-  - IMPORTANT: keys arrive sorted — SuRF requires this for trie construction
+  - IMPORTANT: keys arrive sorted - SuRF requires this for trie construction
 
 KeyMayMatch(key, filter)
   - Called during DB::Get() (read path)
   - Returns false = key DEFINITELY NOT in this SSTable (skip it, no disk read)
   - Returns true  = key MIGHT be in this SSTable (open and check)
   - MUST NEVER return false when key actually exists (false negative = data loss)
-  - False positives (return true when absent) are fine — just extra disk read
+  - False positives (return true when absent) are fine - just extra disk read
 ```
 
 **The 1 method that does not exist yet (YOU ADD THIS):**
 
 ```
 RangeMayMatch(lo, hi, filter)
-  - Called during range scans (NEW — does not exist anywhere in codebase)
+  - Called during range scans (NEW - does not exist anywhere in codebase)
   - Returns false = NO key in [lo, hi] exists in this SSTable (skip entirely)
   - Returns true  = some key in [lo, hi] MIGHT exist (open and scan)
-  - Default implementation returns true (safe — never skips anything)
+  - Default implementation returns true (safe - never skips anything)
   - This default means existing Bloom filter works without any changes
   - Only SuRF overrides this to actually answer range queries
 ```
@@ -60,28 +60,28 @@ NewBloomFilterPolicy(bits_per_key)
 ```
 
 **Key insight:**
-KeyMayMatch uses hashing — throws away all key ordering.
-"ant" and "zebra" both become random numbers — no relationship preserved.
+KeyMayMatch uses hashing - throws away all key ordering.
+"ant" and "zebra" both become random numbers - no relationship preserved.
 Cannot answer "any key between bear and fox?"
-SuRF uses a trie — preserves actual characters and ordering.
+SuRF uses a trie - preserves actual characters and ordering.
 This is why SuRF can answer range queries and Bloom cannot.
 
 ---
 
-## B2 — bloom.cc
+## B2 - bloom.cc
 **Path:** util/bloom.cc
 
 **What it is:**
 The existing Bloom filter implementation you are replacing with SuRF.
 This is the code that runs today when LevelDB asks "is this key possibly here?"
 
-**Mental model — imagine a row of light switches:**
+**Mental model - imagine a row of light switches:**
 ```
 Position:  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
 Bit:       0  0  0  0  0  0  0  0  0  0   0  0  0  0  0  0
            (all OFF at start)
 
-Adding "cat": hash1=3, hash2=7, hash3=11 → flip those positions ON
+Adding "cat": hash1=3, hash2=7, hash3=11 -> flip those positions ON
 Position:  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15
 Bit:       0  0  0  1  0  0  0  1  0  0   0  1  0  0  0  0
 ```
@@ -100,9 +100,9 @@ k_             = number of hash functions = bits_per_key * 0.69
 2. For each key:
    a. Hash it once: h = BloomHash(key)
    b. Compute delta = rotate h right by 17 bits (for double-hashing)
-   c. Loop k_ times: bitpos = h % bits → set that bit ON → h += delta
+   c. Loop k_ times: bitpos = h % bits -> set that bit ON -> h += delta
 3. Append k_ as the last byte (so KeyMayMatch knows how many hashes to check)
-Called during compaction — write path
+Called during compaction - write path
 ```
 
 **KeyMayMatch(key, filter):**
@@ -110,9 +110,9 @@ Called during compaction — write path
 1. Read k from last byte of filter
 2. Hash the query key k times using same double-hash formula
 3. For each bit position:
-   - If bit is OFF → return false (DEFINITELY absent)
-4. If all k bits are ON → return true (MAYBE present)
-Called during Get() — read path
+   - If bit is OFF -> return false (DEFINITELY absent)
+4. If all k bits are ON -> return true (MAYBE present)
+Called during Get() - read path
 ```
 
 **Why it CANNOT do range queries:**
@@ -126,12 +126,12 @@ No way to answer "any key between bear and fox?"
 **False positive rate formula:**
 ```
 (1 - e^(-kn/m))^k
-k=6 hash functions, n=keys, m=bits → approximately 1% false positive rate
+k=6 hash functions, n=keys, m=bits -> approximately 1% false positive rate
 ```
 
 ---
 
-## B3 — filter_block.h
+## B3 - filter_block.h
 **Path:** table/filter_block.h
 
 **What it is:**
@@ -164,20 +164,20 @@ filter_offsets_ = records where each mini-filter starts inside result_
 tmp_keys_       = temporary Slice array rebuilt from keys_+start_ for CreateFilter()
 ```
 
-**THE 2KB PROBLEM — Challenge 1 of your project:**
+**THE 2KB PROBLEM - Challenge 1 of your project:**
 ```
 Current behavior:
-  keys 1-20  (block 0) → GenerateFilter() → mini-filter 0
-  keys 21-40 (block 1) → GenerateFilter() → mini-filter 1
-  keys 41-60 (block 2) → GenerateFilter() → mini-filter 2
+  keys 1-20  (block 0) -> GenerateFilter() -> mini-filter 0
+  keys 21-40 (block 1) -> GenerateFilter() -> mini-filter 1
+  keys 41-60 (block 2) -> GenerateFilter() -> mini-filter 2
   ...
   One SSTable = many mini-filters, each covers only 20 keys
 
 SuRF needs:
-  keys 1-20  → buffer
-  keys 21-40 → buffer
-  keys 41-60 → buffer
-  Finish()   → CreateFilter(ALL keys) → one SuRF trie
+  keys 1-20  -> buffer
+  keys 21-40 -> buffer
+  keys 41-60 -> buffer
+  Finish()   -> CreateFilter(ALL keys) -> one SuRF trie
   One SSTable = one filter, covers ALL keys
 
 Your fix in Week 2:
@@ -188,7 +188,7 @@ Your fix in Week 2:
 
 **FilterBlockReader key variables:**
 ```
-base_lg_ = 11 → 2^11 = 2048 = 2KB (the encoding parameter)
+base_lg_ = 11 -> 2^11 = 2048 = 2KB (the encoding parameter)
 data_    = pointer to start of filter block bytes
 offset_  = pointer to the offset table at end of filter block
 num_     = number of mini-filters
@@ -196,7 +196,7 @@ num_     = number of mini-filters
 
 ---
 
-## B4 — filter_block.cc
+## B4 - filter_block.cc
 **Path:** table/filter_block.cc
 
 **What it is:**
@@ -210,7 +210,7 @@ This constant drives EVERYTHING about when filters are created
 One new filter generated every 2KB of data
 ```
 
-**AddKey(key) — simple buffering:**
+**AddKey(key) - simple buffering:**
 ```
 start_.push_back(keys_.size())  ← record where this key starts
 keys_.append(key)               ← append key bytes to the packed string
@@ -220,19 +220,19 @@ Example after adding "cat", "dog", "fox":
   start_ = [0, 3, 6]
 ```
 
-**StartBlock(block_offset) — when to generate:**
+**StartBlock(block_offset) - when to generate:**
 ```
 filter_index = block_offset / 2048
 while filter_index > filter_offsets_.size():
     GenerateFilter()
 
 Example:
-  StartBlock(0)    → filter_index=0, 0>0 false → nothing
-  StartBlock(2048) → filter_index=1, 1>0 true  → GenerateFilter() called!
-  StartBlock(4096) → filter_index=2, 2>1 true  → GenerateFilter() called!
+  StartBlock(0)    -> filter_index=0, 0>0 false -> nothing
+  StartBlock(2048) -> filter_index=1, 1>0 true  -> GenerateFilter() called!
+  StartBlock(4096) -> filter_index=2, 2>1 true  -> GenerateFilter() called!
 ```
 
-**GenerateFilter() — the core:**
+**GenerateFilter() - the core:**
 ```
 1. Reconstruct individual Slice objects from packed keys_+start_
    (adds keys_.size() as sentinel for last key length computation)
@@ -245,7 +245,7 @@ THIS IS THE METHOD WE CHANGE IN WEEK 2:
   Future:  called ONCE in Finish() with ALL keys
 ```
 
-**Finish() — assembles the final filter block:**
+**Finish() - assembles the final filter block:**
 ```
 1. Flush remaining keys if any
 2. Append filter_offsets_ table (4 bytes per filter, records start positions)
@@ -256,7 +256,7 @@ Final layout on disk:
 [filter 0][filter 1][filter 2]...[offset table][array_offset][11]
 ```
 
-**FilterBlockReader constructor — reading back from disk:**
+**FilterBlockReader constructor - reading back from disk:**
 ```
 Start from END of bytes:
   base_lg_   = last byte        (= 11)
@@ -274,31 +274,31 @@ limit = offset_table[index+1] ← where it ends
 filter = data_[start..limit]
 return policy_->KeyMayMatch(key, filter)
 
-If error: return true (safe — never skip on doubt)
+If error: return true (safe - never skip on doubt)
 ```
 
 ---
 
-## B5 — table_builder.cc
+## B5 - table_builder.cc
 **Path:** table/table_builder.cc
 
 **What it is:**
 Builds one complete SSTable file from scratch.
 Takes key-value pairs one at a time, writes them to disk.
-Most of this file is NOT your concern — only 4 lines matter.
+Most of this file is NOT your concern - only 4 lines matter.
 
 **The 4 lines that matter for your project:**
 
-**1. Constructor — plug-in point:**
+**1. Constructor - plug-in point:**
 ```cpp
 filter_block(opt.filter_policy == nullptr
     ? nullptr
     : new FilterBlockBuilder(opt.filter_policy))
 ```
-If filter_policy is set → create FilterBlockBuilder with it.
+If filter_policy is set -> create FilterBlockBuilder with it.
 This is where Bloom or SuRF gets wired into the write path.
 
-**2. Add(key, value) — per-key call:**
+**2. Add(key, value) - per-key call:**
 ```cpp
 if (r->filter_block != nullptr) {
     r->filter_block->AddKey(key);   ← key given to filter
@@ -307,35 +307,35 @@ r->data_block.Add(key, value);      ← key+value written to data block
 ```
 AddKey() called BEFORE data block flush. Key belongs to current block.
 
-**3. Flush() — every 2KB:**
+**3. Flush() - every 2KB:**
 ```cpp
 WriteBlock(&r->data_block, &r->pending_handle);  ← data block to disk
 filter_block->StartBlock(r->offset);              ← triggers GenerateFilter()
 ```
-After writing 2KB of data → tell filter "new block starting at this offset"
+After writing 2KB of data -> tell filter "new block starting at this offset"
 
-**4. Finish() — end of SSTable:**
+**4. Finish() - end of SSTable:**
 ```cpp
 WriteRawBlock(r->filter_block->Finish(), kNoCompression, &filter_block_handle);
 key.append(r->options.filter_policy->Name());  ← filter name stored in SSTable
 ```
-Calls filter_block->Finish() → gets all filter bytes → writes to disk.
+Calls filter_block->Finish() -> gets all filter bytes -> writes to disk.
 Stores filter name in metaindex. Must match on read or filter ignored.
 
 **What you do NOT change in this file:**
 TableBuilder stays exactly the same.
 You only change FilterBlockBuilder (filter_block.cc).
-TableBuilder already calls Finish() at the end — you just change what Finish() does.
+TableBuilder already calls Finish() at the end - you just change what Finish() does.
 
 **Write path summary:**
 ```
-Add() × N keys → Flush() every 2KB → StartBlock() → GenerateFilter()
-→ Finish() → filter_block->Finish() → filter written to disk
+Add() × N keys -> Flush() every 2KB -> StartBlock() -> GenerateFilter()
+-> Finish() -> filter_block->Finish() -> filter written to disk
 ```
 
 ---
 
-## B6 — table.cc
+## B6 - table.cc
 **Path:** table/table.cc
 
 **What it is:**
@@ -353,20 +353,20 @@ The Book (SSTable):
 
 **Table::Open():**
 ```
-1. Read FOOTER (last bytes of file — always fixed size)
-   Footer → find index location + filter location
+1. Read FOOTER (last bytes of file - always fixed size)
+   Footer -> find index location + filter location
 2. Read INDEX BLOCK into memory
-   Index = table of contents (key range → data block location)
-3. Call ReadMeta() → load the filter
+   Index = table of contents (key range -> data block location)
+3. Call ReadMeta() -> load the filter
 ```
 
-**ReadMeta() — filter name check:**
+**ReadMeta() - filter name check:**
 ```
 Looks for entry: "filter." + policy->Name()
 Example: "filter.leveldb.BuiltinBloomFilter2"
 
-If found AND name matches current policy → load filter
-If not found OR name mismatch → no filter (falls back to reading everything)
+If found AND name matches current policy -> load filter
+If not found OR name mismatch -> no filter (falls back to reading everything)
 
 WHY THIS MATTERS: Your SuRF Name() must stay consistent.
 Wrong name = filter silently ignored = slow reads with no error message.
@@ -375,22 +375,22 @@ Wrong name = filter silently ignored = slow reads with no error message.
 **ReadFilter():**
 ```
 Reads raw filter bytes from disk into RAM.
-Creates FilterBlockReader — answers KeyMayMatch() questions.
+Creates FilterBlockReader - answers KeyMayMatch() questions.
 ```
 
-**InternalGet() — THE KEY METHOD for point queries:**
+**InternalGet() - THE KEY METHOD for point queries:**
 ```
-Step 1: Ask index → which data block might have this key?
-Step 2: Ask filter → KeyMayMatch(block_offset, key)?
-        NO  → skip block, zero disk reads saved ← BLOOM FILTER WORKS HERE
-        YES → open block, search for key
+Step 1: Ask index -> which data block might have this key?
+Step 2: Ask filter -> KeyMayMatch(block_offset, key)?
+        NO  -> skip block, zero disk reads saved ← BLOOM FILTER WORKS HERE
+        YES -> open block, search for key
 Step 3: Read value from data block
 
 Line 225: if (!filter->KeyMayMatch(handle.offset(), k)) { // Not found }
 This is the line that saves disk reads for Get() calls.
 ```
 
-**NewIterator() — for range scans:**
+**NewIterator() - for range scans:**
 ```
 return NewTwoLevelIterator(
     index_block->NewIterator(),   ← outer: walks index entries
@@ -403,24 +403,24 @@ Your project adds RangeMayMatch() check before BlockReader opens a block.
 
 **The gap your project fills:**
 ```
-InternalGet  → has KeyMayMatch check     → point queries already optimized
-NewIterator  → NO filter check           → range scans still open everything
-After SuRF   → RangeMayMatch added here  → range scans optimized too
+InternalGet  -> has KeyMayMatch check     -> point queries already optimized
+NewIterator  -> NO filter check           -> range scans still open everything
+After SuRF   -> RangeMayMatch added here  -> range scans optimized too
 ```
 
 ---
 
-## B7 — version_set.cc
+## B7 - version_set.cc
 **Path:** db/version_set.cc
 
 **What it is:**
-The library directory — tracks ALL SSTables across ALL levels.
+The library directory - tracks ALL SSTables across ALL levels.
 Knows which files exist, what key range each covers, how to scan them.
 
 **Analogy:** 7-floor library. Each floor = one level (0-6).
 Each shelf = one SSTable. Spine label = smallest key to largest key.
 
-**FileMetaData — the spine label on each SSTable:**
+**FileMetaData - the spine label on each SSTable:**
 ```
 struct FileMetaData {
     uint64_t number;       // file ID (e.g. 000042.ldb)
@@ -434,19 +434,19 @@ struct FileMetaData {
 ```
 Query: "find keys between dog and fox"
 
-COARSE CHECK (already exists — FileMetaData):
-  SSTable A: largest=cat   → cat < dog  → skip (entirely before query)
-  SSTable B: range overlaps query        → pass to fine check
-  SSTable C: smallest=lion → lion > fox → skip (entirely after query)
+COARSE CHECK (already exists - FileMetaData):
+  SSTable A: largest=cat   -> cat < dog  -> skip (entirely before query)
+  SSTable B: range overlaps query        -> pass to fine check
+  SSTable C: smallest=lion -> lion > fox -> skip (entirely after query)
 
-FINE CHECK (SuRF — you add this):
+FINE CHECK (SuRF - you add this):
   SSTable B: range overlaps BUT actual keys are bear, cat, elephant
   None are between dog and fox
-  RangeMayMatch("dog", "fox") → false → SKIP
+  RangeMayMatch("dog", "fox") -> false -> SKIP
   Saved one disk read that coarse check could not prevent
 ```
 
-**AddIterators() — THE function your project touches:**
+**AddIterators() - THE function your project touches:**
 ```cpp
 void Version::AddIterators(const ReadOptions& options,
                            std::vector<Iterator*>* iters) {
@@ -461,10 +461,10 @@ void Version::AddIterators(const ReadOptions& options,
 
 YOUR HOOK GOES HERE:
   Before table_cache_->NewIterator(file) is called:
-  if RangeMayMatch(lo, hi, file) == false → skip this file
+  if RangeMayMatch(lo, hi, file) == false -> skip this file
 ```
 
-**LevelFileNumIterator — the outer iterator:**
+**LevelFileNumIterator - the outer iterator:**
 ```
 Walks through the list of SSTables on one level.
 key()   = largest key in current SSTable
@@ -474,10 +474,10 @@ This is the outer level of the TwoLevelIterator.
 Inner level opens the actual SSTable when outer lands on it.
 ```
 
-**GetFileIterator() — opens one SSTable:**
+**GetFileIterator() - opens one SSTable:**
 ```
 Called for each candidate SSTable during range scan.
-Currently called unconditionally — no filter check.
+Currently called unconditionally - no filter check.
 YOUR CHANGE: check RangeMayMatch before calling this.
 ```
 
@@ -493,7 +493,7 @@ Your RangeMayMatch check goes between outer landing and inner opening.
 
 ---
 
-## B8 — table_cache.cc
+## B8 - table_cache.cc
 **Path:** db/table_cache.cc
 
 **What it is:**
@@ -501,7 +501,7 @@ A cache of recently opened SSTable files.
 Opening an SSTable from disk is slow. Cache keeps recent ones in memory.
 
 **Analogy:** Hotel concierge with a recently-opened-rooms list.
-Guest arrives → concierge checks list → if room recently opened: instant access.
+Guest arrives -> concierge checks list -> if room recently opened: instant access.
 If not: concierge walks to room, unlocks it, adds to list.
 
 **TableAndFile struct:**
@@ -513,11 +513,11 @@ struct TableAndFile {
 One entry per cached SSTable in the LRU cache.
 ```
 
-**FindTable(file_number, file_size) — core of the cache:**
+**FindTable(file_number, file_size) - core of the cache:**
 ```
 Step 1: cache_->Lookup(file_number)
-        Hit  → return immediately (fast, memory only)
-        Miss → continue to step 2
+        Hit  -> return immediately (fast, memory only)
+        Miss -> continue to step 2
 
 Step 2: Open file from disk
         env_->NewRandomAccessFile(filename, &file)
@@ -529,11 +529,11 @@ Step 3: cache_->Insert(file_number, TableAndFile{file, table})
 
 YOUR HOOK POINT:
   RangeMayMatch check happens BEFORE FindTable() is called.
-  If false → return empty iterator, skip FindTable entirely.
+  If false -> return empty iterator, skip FindTable entirely.
   Zero disk I/O, zero cache lookup.
 ```
 
-**NewIterator() — YOUR HOOK POINT:**
+**NewIterator() - YOUR HOOK POINT:**
 ```cpp
 Iterator* TableCache::NewIterator(file_number, file_size) {
     FindTable(file_number, file_size, &handle);  ← opens SSTable if needed
@@ -548,11 +548,11 @@ YOUR CHANGE:
         return NewEmptyIterator()  ← skip entirely
 
   This requires threading [lo, hi] down from:
-  AddIterators() → NewConcatenatingIterator() → GetFileIterator() → here
+  AddIterators() -> NewConcatenatingIterator() -> GetFileIterator() -> here
   That threading work = Challenge 2 from project proposal
 ```
 
-**Get() — point queries:**
+**Get() - point queries:**
 ```
 Calls FindTable() then t->InternalGet().
 InternalGet() already calls KeyMayMatch() inside table.cc.
@@ -567,21 +567,21 @@ Removes from cache so memory not wasted on dead files.
 
 ---
 
-## B9 — grep Results — Complete Call Map
+## B9 - grep Results - Complete Call Map
 
 **Every place filters are mentioned across the entire codebase:**
 
 ### INTERFACE DEFINITION (1 place)
 ```
-include/leveldb/filter_policy.h:43   CreateFilter() — the contract
-include/leveldb/filter_policy.h:51   KeyMayMatch()  — the contract
+include/leveldb/filter_policy.h:43   CreateFilter() - the contract
+include/leveldb/filter_policy.h:51   KeyMayMatch()  - the contract
 include/leveldb/options.h:147        filter_policy = nullptr (default: no filter)
 ```
 
-### IMPLEMENTATION (2 places — you replace bloom.cc)
+### IMPLEMENTATION (2 places - you replace bloom.cc)
 ```
-util/bloom.cc:28   CreateFilter() — builds bit array
-util/bloom.cc:56   KeyMayMatch()  — checks bit array
+util/bloom.cc:28   CreateFilter() - builds bit array
+util/bloom.cc:56   KeyMayMatch()  - checks bit array
 ```
 These are the lines your SuRFPolicy replaces.
 
@@ -591,9 +591,9 @@ table/filter_block.cc:70    policy_->CreateFilter()   ← called in GenerateFilt
 table/table_builder.cc:31   new FilterBlockBuilder()  ← filter created here
 table/table_builder.cc:233  filter_policy->Name()     ← name stored in SSTable
 ```
-Order: TableBuilder → FilterBlockBuilder → GenerateFilter() → CreateFilter()
+Order: TableBuilder -> FilterBlockBuilder -> GenerateFilter() -> CreateFilter()
 
-### READ PATH — POINT QUERIES (4 places)
+### READ PATH - POINT QUERIES (4 places)
 ```
 table/table.cc:83    filter_policy == nullptr  ← skip entirely if no filter
 table/table.cc:102   filter_policy->Name()     ← verify name matches on open
@@ -602,15 +602,15 @@ table/table.cc:225   filter->KeyMayMatch()     ← THE CHECK for point queries
 ```
 Line 225 is the most important existing line. Your RangeMayMatch mirrors this.
 
-### READ PATH — RANGE SCANS (YOUR NEW HOOK)
+### READ PATH - RANGE SCANS (YOUR NEW HOOK)
 ```
-db/table_cache.cc — NewIterator()   ← RangeMayMatch check goes HERE
-db/version_set.cc — AddIterators()  ← [lo, hi] range originates here
-db/version_set.cc — GetFileIterator() ← [lo, hi] must be threaded through here
+db/table_cache.cc - NewIterator()   ← RangeMayMatch check goes HERE
+db/version_set.cc - AddIterators()  ← [lo, hi] range originates here
+db/version_set.cc - GetFileIterator() ← [lo, hi] must be threaded through here
 ```
 Currently NO filter check exists for range scans anywhere in the codebase.
 
-### THE INTERNAL WRAPPER (easy to miss — very important)
+### THE INTERNAL WRAPPER (easy to miss - very important)
 ```
 db/dbformat.cc:101  InternalFilterPolicy::CreateFilter()
 db/dbformat.cc:110  user_policy_->CreateFilter()          ← calls your code
@@ -621,17 +621,17 @@ LevelDB internally stores keys with extra bytes appended (sequence number + type
 Example: "cat" stored as "cat\x00\x00\x00\x01..."
 InternalFilterPolicy STRIPS these extra bytes before calling your filter.
 Your CreateFilter() and KeyMayMatch() receive CLEAN user keys.
-Your RangeMayMatch() lo and hi will also be clean user keys — no stripping needed.
+Your RangeMayMatch() lo and hi will also be clean user keys - no stripping needed.
 
-### TESTS (your safety net — all must still pass)
+### TESTS (your safety net - all must still pass)
 ```
-table/filter_block_test.cc — Tests KeyMayMatch at various block offsets
-  Line 49:  KeyMayMatch(0,    "foo")     → true  (key IS there)
-  Line 70:  KeyMayMatch(100,  "missing") → false (key NOT there)
-  Line 100: KeyMayMatch(0,    "box")     → false (key in different block)
+table/filter_block_test.cc - Tests KeyMayMatch at various block offsets
+  Line 49:  KeyMayMatch(0,    "foo")     -> true  (key IS there)
+  Line 70:  KeyMayMatch(100,  "missing") -> false (key NOT there)
+  Line 100: KeyMayMatch(0,    "box")     -> false (key in different block)
 
-db/db_test.cc:1938 — End-to-end test with Bloom filter
-util/bloom_test.cc — Unit tests for Bloom filter specifically
+db/db_test.cc:1938 - End-to-end test with Bloom filter
+util/bloom_test.cc - Unit tests for Bloom filter specifically
 ```
 Your SuRF must pass all filter_block_test.cc tests.
 When you write RangeMayMatch tests, follow the same pattern.
@@ -675,20 +675,20 @@ Run the same benchmark. That is your project result.
        KeyMayMatch()                        KeyMayMatch()
                                             RangeMayMatch() ← NEW
 
-WRITE PATH:                        READ PATH — POINT QUERIES:
+WRITE PATH:                        READ PATH - POINT QUERIES:
 table_builder.cc                   table.cc line 225
-  Add(key) → filter_block              filter->KeyMayMatch()
-     → AddKey(key)                     Already works. No changes.
-  Flush() → StartBlock(offset)
-     → GenerateFilter()            READ PATH — RANGE SCANS:
-        → CreateFilter(2KB keys)   table_cache.cc NewIterator()
+  Add(key) -> filter_block              filter->KeyMayMatch()
+     -> AddKey(key)                     Already works. No changes.
+  Flush() -> StartBlock(offset)
+     -> GenerateFilter()            READ PATH - RANGE SCANS:
+        -> CreateFilter(2KB keys)   table_cache.cc NewIterator()
                                        ← YOUR NEW HOOK
   Finish()                             RangeMayMatch(lo, hi)
-     → filter_block->Finish()          if false → skip SSTable
-        → CreateFilter(ALL keys)       Called from:
+     -> filter_block->Finish()          if false -> skip SSTable
+        -> CreateFilter(ALL keys)       Called from:
            (after your Week 2 fix)     version_set.cc AddIterators()
-                                       → GetFileIterator()
-                                       → TableCache::NewIterator()
+                                       -> GetFileIterator()
+                                       -> TableCache::NewIterator()
                                           ← check goes HERE
 
 INTERNAL WRAPPER:
@@ -711,22 +711,22 @@ You add it everywhere it needs to be.
 
 ---
 
-## Summary — What Changes Week by Week
+## Summary - What Changes Week by Week
 
 ```
-Week 2 — Implement SuRFPolicy:
+Week 2 - Implement SuRFPolicy:
   NEW FILE: util/surf_filter.cc
-    SuRFPolicy::Name()          → "leveldb.SuRFFilter"
-    SuRFPolicy::CreateFilter()  → build SuRF trie from sorted keys
-    SuRFPolicy::KeyMayMatch()   → lookup exact key in SuRF trie
-    SuRFPolicy::RangeMayMatch() → lookup key range in SuRF trie
+    SuRFPolicy::Name()          -> "leveldb.SuRFFilter"
+    SuRFPolicy::CreateFilter()  -> build SuRF trie from sorted keys
+    SuRFPolicy::KeyMayMatch()   -> lookup exact key in SuRF trie
+    SuRFPolicy::RangeMayMatch() -> lookup key range in SuRF trie
   MODIFY: include/leveldb/filter_policy.h
     Add RangeMayMatch() with default return true
   MODIFY: table/filter_block.cc
     Stop calling GenerateFilter() at 2KB boundaries
     Buffer all keys, call CreateFilter() once in Finish()
 
-Week 3 — Wire into range scan path:
+Week 3 - Wire into range scan path:
   MODIFY: db/table_cache.cc
     Add RangeMayMatch check before FindTable() in NewIterator()
   MODIFY: db/version_set.cc
@@ -734,7 +734,7 @@ Week 3 — Wire into range scan path:
   MODIFY: table/two_level_iterator.cc
     Pass range query bounds to inner iterator creation
 
-Week 4 — Benchmarking:
+Week 4 - Benchmarking:
   MODIFY: benchmarks/db_bench.cc
     Change NewBloomFilterPolicy(10) to NewSuRFFilterPolicy()
   RUN: db_bench seekrandom, YCSB Workload E
@@ -743,11 +743,11 @@ Week 4 — Benchmarking:
 
 ---
 
-## CRITICAL GAPS — Must Know Before Coding
+## CRITICAL GAPS - Must Know Before Coding
 
 ---
 
-### GAP 1 — Offset → Filter Index Mapping
+### GAP 1 - Offset -> Filter Index Mapping
 
 **The exact formula:**
 ```
@@ -766,28 +766,28 @@ kFilterBase = 2^11 = 2048
 
 block_offset = 4096
 filter_index = 4096 >> 11 = 4096 / 2048 = 2
-→ use mini-filter number 2
+-> use mini-filter number 2
 
 block_offset = 6144
 filter_index = 6144 >> 11 = 6144 / 2048 = 3
-→ use mini-filter number 3
+-> use mini-filter number 3
 
 block_offset = 0
 filter_index = 0 >> 11 = 0
-→ use mini-filter number 0
+-> use mini-filter number 0
 ```
 
-**Practice question — answer instantly:**
+**Practice question - answer instantly:**
 ```
 Given: block_offset = 4096, base_lg_ = 11
 Which filter is used?
 
-Answer: 4096 >> 11 = 2 → mini-filter number 2
+Answer: 4096 >> 11 = 2 -> mini-filter number 2
 ```
 
 ---
 
-### GAP 2 — Filter Block Layout On Disk
+### GAP 2 - Filter Block Layout On Disk
 
 **Draw this from memory:**
 ```
@@ -800,49 +800,49 @@ Answer: 4096 >> 11 = 2 → mini-filter number 2
 data_                                     offset_          array_offset    last byte
 ```
 
-**Why stored from the end — 2 reasons:**
+**Why stored from the end - 2 reasons:**
 
-1. Filter sizes are variable — you cannot know where the offset table starts
+1. Filter sizes are variable - you cannot know where the offset table starts
    until all filters are written. So you write filters first, then the table.
 
 2. The reader always knows the total size of the block. So it reads from
-   the END backwards — last byte = base_lg_, 4 bytes before = array_offset,
+   the END backwards - last byte = base_lg_, 4 bytes before = array_offset,
    then jump to array_offset to find the offset table.
 
-**How the constructor decodes it — step by step:**
+**How the constructor decodes it - step by step:**
 ```cpp
 size_t n = contents.size();
 
 Step 1: base_lg_ = contents[n - 1]
-        → last byte = 11
+        -> last byte = 11
 
 Step 2: last_word = DecodeFixed32(contents.data() + n - 5)
-        → 4 bytes before last byte = array_offset
-        → this is where the offset table starts
+        -> 4 bytes before last byte = array_offset
+        -> this is where the offset table starts
 
 Step 3: data_   = contents.data()
-        → pointer to very start of block (filter 0 starts here)
+        -> pointer to very start of block (filter 0 starts here)
 
 Step 4: offset_ = data_ + last_word
-        → pointer to start of offset table
+        -> pointer to start of offset table
 
 Step 5: num_ = (n - 5 - last_word) / 4
-        → (total bytes - 5 footer bytes - offset table start) / 4 bytes each
-        → = number of entries in offset table = number of mini-filters
+        -> (total bytes - 5 footer bytes - offset table start) / 4 bytes each
+        -> = number of entries in offset table = number of mini-filters
 ```
 
 **How KeyMayMatch finds the right filter:**
 ```
-index  = block_offset >> base_lg_          → which filter number
-start  = DecodeFixed32(offset_ + index*4)  → where filter starts
-limit  = DecodeFixed32(offset_ + index*4 + 4) → where filter ends
-filter = Slice(data_ + start, limit - start)  → the actual filter bytes
+index  = block_offset >> base_lg_          -> which filter number
+start  = DecodeFixed32(offset_ + index*4)  -> where filter starts
+limit  = DecodeFixed32(offset_ + index*4 + 4) -> where filter ends
+filter = Slice(data_ + start, limit - start)  -> the actual filter bytes
 return policy_->KeyMayMatch(key, filter)
 ```
 
 ---
 
-### GAP 3 — InternalFilterPolicy (Critical Detail)
+### GAP 3 - InternalFilterPolicy (Critical Detail)
 
 **What it is:**
 A wrapper around your filter that strips internal key bytes.
@@ -875,7 +875,7 @@ InternalFilterPolicy::KeyMayMatch(internal_key, filter)
                                YOUR SuRFPolicy receives CLEAN key
 ```
 
-**For your RangeMayMatch(lo, hi) — same rule:**
+**For your RangeMayMatch(lo, hi) - same rule:**
 The lo and hi passed to your function will already be clean user keys.
 You do NOT need to strip anything yourself.
 InternalFilterPolicy handles it before your code is called.
@@ -887,7 +887,7 @@ your SuRFPolicy only ever deals with clean user keys.
 
 ---
 
-### GAP 4 — Exact Location of RangeMayMatch Hook
+### GAP 4 - Exact Location of RangeMayMatch Hook
 
 **This flow must be crystal clear:**
 
@@ -899,8 +899,8 @@ User calls: db->NewIterator() or range scan
 Version::AddIterators()                    [version_set.cc]
   For each SSTable in each level:
   Coarse check: does file range [smallest, largest] overlap [lo, hi]?
-  If NO  → skip (already handled by FileMetaData)
-  If YES → pass to next step
+  If NO  -> skip (already handled by FileMetaData)
+  If YES -> pass to next step
     │
     ▼
 NewConcatenatingIterator()                 [version_set.cc]
@@ -924,8 +924,8 @@ TableCache::NewIterator()                  [table_cache.cc]
     │
     ▼
   FindTable()                              [table_cache.cc]
-    cache hit  → fast (memory only)
-    cache miss → Table::Open() → disk I/O (slow)
+    cache hit  -> fast (memory only)
+    cache miss -> Table::Open() -> disk I/O (slow)
     │
     ▼
   table->NewIterator()                     [table.cc]
@@ -938,35 +938,35 @@ you must change function signatures in multiple files:
 
 ```
 AddIterators(options, iters)
-  → needs lo, hi added: AddIterators(options, lo, hi, iters)
+  -> needs lo, hi added: AddIterators(options, lo, hi, iters)
 
 NewConcatenatingIterator(options, level)
-  → needs lo, hi added: NewConcatenatingIterator(options, lo, hi, level)
+  -> needs lo, hi added: NewConcatenatingIterator(options, lo, hi, level)
 
 GetFileIterator(arg, options, file_value)
-  → needs lo, hi somehow (passed via arg struct or ReadOptions extension)
+  -> needs lo, hi somehow (passed via arg struct or ReadOptions extension)
 
 TableCache::NewIterator(options, file_number, file_size)
-  → needs lo, hi added: NewIterator(options, lo, hi, file_number, file_size)
+  -> needs lo, hi added: NewIterator(options, lo, hi, file_number, file_size)
 ```
 
-This is why the project takes weeks — not because the logic is hard,
+This is why the project takes weeks - not because the logic is hard,
 but because threading parameters through existing code requires careful changes.
 
 ---
 
-### GAP 5 — The Safety Rule (Burn This In)
+### GAP 5 - The Safety Rule (Burn This In)
 
 **For KeyMayMatch:**
 ```
-false → MUST be correct. Key is DEFINITELY NOT here. No exceptions.
-true  → CAN be wrong. Key might or might not be here. Fine.
+false -> MUST be correct. Key is DEFINITELY NOT here. No exceptions.
+true  -> CAN be wrong. Key might or might not be here. Fine.
 ```
 
 **For RangeMayMatch:**
 ```
-false → MUST be correct. NO key in [lo, hi] is DEFINITELY NOT here. No exceptions.
-true  → CAN be wrong. Some key in [lo, hi] might or might not be here. Fine.
+false -> MUST be correct. NO key in [lo, hi] is DEFINITELY NOT here. No exceptions.
+true  -> CAN be wrong. Some key in [lo, hi] might or might not be here. Fine.
 ```
 
 **False negative = data loss. Never acceptable.**
@@ -998,7 +998,7 @@ Just not fast. Safety first, then optimize.
 
 ---
 
-### THE DEEPEST INSIGHT — Filters Are NOT For Correctness
+### THE DEEPEST INSIGHT - Filters Are NOT For Correctness
 
 This is the most important thing to understand about the entire filter system.
 
@@ -1031,20 +1031,20 @@ With a broken filter (false positives only):
 ```
 
 **The practical consequence:**
-If you are debugging and your SuRF filter has a bug — the first question is:
+If you are debugging and your SuRF filter has a bug - the first question is:
 "Am I getting wrong answers or just slow answers?"
 
-Wrong answers → you have a false negative → your RangeMayMatch is returning
+Wrong answers -> you have a false negative -> your RangeMayMatch is returning
 false when it should return true. Go fix the filter logic.
 
-Slow answers → you might have too many false positives → your filter is
+Slow answers -> you might have too many false positives -> your filter is
 not pruning enough SSTables. Go tune the false positive rate.
 
-Correct and fast → your filter is working perfectly.
+Correct and fast -> your filter is working perfectly.
 
 ---
 
-### Quick Recall Test — Answer These Instantly
+### Quick Recall Test - Answer These Instantly
 
 ```
 Q1: Given block_offset=4096, base_lg_=11. Which filter index?
@@ -1066,7 +1066,7 @@ Q6: Can RangeMayMatch return false incorrectly?
 A:  NEVER. False negative = data loss. Catastrophic.
 
 Q7: Why can Bloom not answer range queries?
-A:  BloomHash() converts keys to numbers — destroys all ordering.
+A:  BloomHash() converts keys to numbers - destroys all ordering.
     "ant" and "zebra" become unrelated numbers.
     No way to say "any key between bear and fox?"
     SuRF keeps ordering in the trie. Bloom throws it away.

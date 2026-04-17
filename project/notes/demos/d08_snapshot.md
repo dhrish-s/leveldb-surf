@@ -1,15 +1,15 @@
-# D8 — Snapshots (Point-in-Time Reads)
+# D8 - Snapshots (Point-in-Time Reads)
 # File: /workspace/project/demos/d08_snapshot.cc
 
 ---
 
 ## What This Demo Teaches
-- What a snapshot is — a frozen photograph of the database
+- What a snapshot is - a frozen photograph of the database
 - How GetSnapshot() and ReleaseSnapshot() work
 - How ro.snapshot makes Get() and Iterator read old data
 - Why you must always release snapshots
 - What MVCC means and how LevelDB implements it with sequence numbers
-- Why your SuRF filter works correctly even with snapshots
+- Why the SuRF filter works correctly even with snapshots
 
 ---
 
@@ -91,7 +91,7 @@ db->ReleaseSnapshot(snap);
 ```
 Destroys the snapshot object and frees memory.
 Tells LevelDB: compaction can now clean up old versions.
-ALWAYS release when done — never leave a snapshot open.
+ALWAYS release when done - never leave a snapshot open.
 
 Original file: db/db_impl.cc DBImpl::ReleaseSnapshot()
 
@@ -106,11 +106,11 @@ const leveldb::Snapshot* snap = db->GetSnapshot();
 const here means the Snapshot object cannot be modified through snap.
 You can only pass snap to GetSnapshot() and ReleaseSnapshot().
 You cannot call any mutating methods on it.
-This is correct — a snapshot should be read-only.
+This is correct - a snapshot should be read-only.
 
 ### Two ReadOptions objects
 ```cpp
-leveldb::ReadOptions ro_latest;   // default — reads latest data
+leveldb::ReadOptions ro_latest;   // default - reads latest data
 leveldb::ReadOptions ro_snap;     // reads through frozen snapshot
 ro_snap.snapshot = snap;
 ```
@@ -142,33 +142,33 @@ Timeline:
 
 ---
 
-## MVCC — Multi-Version Concurrency Control
+## MVCC - Multi-Version Concurrency Control
 
 LevelDB uses MVCC to make snapshots work.
 Every record stored internally has a sequence number:
 
 ```
 Internal storage:
-  "animal:bear" seq=1 → "Large omnivore"   (Put at seq 1)
-  "animal:cat"  seq=2 → "Domestic feline"  (Put at seq 2)
-  "animal:dog"  seq=3 → "Domestic canine"  (Put at seq 3)
+  "animal:bear" seq=1 -> "Large omnivore"   (Put at seq 1)
+  "animal:cat"  seq=2 -> "Domestic feline"  (Put at seq 2)
+  "animal:dog"  seq=3 -> "Domestic canine"  (Put at seq 3)
   snapshot taken at seq=3
-  "animal:elephant" seq=4 → "Largest land animal" (Put after snap)
-  "animal:fox"      seq=5 → "Clever omnivore"     (Put after snap)
-  "animal:bear"     seq=6 → [TOMBSTONE]            (Delete after snap)
+  "animal:elephant" seq=4 -> "Largest land animal" (Put after snap)
+  "animal:fox"      seq=5 -> "Clever omnivore"     (Put after snap)
+  "animal:bear"     seq=6 -> [TOMBSTONE]            (Delete after snap)
 
 Read with snapshot (seq=3):
   Only see records with seq <= 3
-  bear seq=1 ✓ visible → "Large omnivore"
-  cat  seq=2 ✓ visible → "Domestic feline"
-  dog  seq=3 ✓ visible → "Domestic canine"
+  bear seq=1 ✓ visible -> "Large omnivore"
+  cat  seq=2 ✓ visible -> "Domestic feline"
+  dog  seq=3 ✓ visible -> "Domestic canine"
   elephant seq=4 ✗ hidden (after snapshot)
   fox  seq=5 ✗ hidden (after snapshot)
-  bear tombstone seq=6 ✗ hidden → bear still shows as alive
+  bear tombstone seq=6 ✗ hidden -> bear still shows as alive
 
 Read without snapshot:
   See all records, take latest version per key
-  bear tombstone seq=6 takes priority → NotFound
+  bear tombstone seq=6 takes priority -> NotFound
   elephant seq=4 visible
   fox seq=5 visible
 ```
@@ -191,16 +191,16 @@ After snapshot: added elephant+fox, deleted bear
 
 ```
 WITHOUT snapshot:
-  animal:bear     → NotFound (deleted)
-  animal:elephant → Largest land animal
+  animal:bear     -> NotFound (deleted)
+  animal:elephant -> Largest land animal
 ```
 Latest state: bear tombstone at seq=6 hides old bear.
 Elephant at seq=4 is visible.
 
 ```
 WITH snapshot (frozen at bear+cat+dog):
-  animal:bear     → Large omnivore (still alive in snapshot)
-  animal:elephant → NotFound (written after snapshot)
+  animal:bear     -> Large omnivore (still alive in snapshot)
+  animal:elephant -> NotFound (written after snapshot)
 ```
 Snapshot at seq=3:
   bear at seq=1 is visible. Tombstone at seq=6 is hidden.
@@ -254,18 +254,18 @@ With ReleaseSnapshot():
 
 ## Connection to Your Project
 
-Your SuRF filter works correctly with snapshots because of InternalFilterPolicy.
+The SuRF filter works correctly with snapshots because of InternalFilterPolicy.
 
 When reading through a snapshot:
   Get() uses InternalFilterPolicy::KeyMayMatch()
   InternalFilterPolicy strips the sequence number from the key
-  Passes clean user key to your SuRFPolicy::KeyMayMatch()
-  Your filter never sees sequence numbers
+  Passes clean user key to SuRFPolicy::KeyMayMatch()
+  The filter never sees sequence numbers
 
 For RangeMayMatch:
-  The lo and hi passed to your filter are clean user keys
+  The lo and hi passed to the filter are clean user keys
   No sequence numbers, no type bytes
-  You do not need to handle MVCC in your filter implementation
+  MVCC does not need to be handled in the filter implementation
   InternalFilterPolicy handles it transparently
 
 ---

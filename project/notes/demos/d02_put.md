@@ -1,4 +1,4 @@
-# D2 — Writing Data with Put()
+# D2 - Writing Data with Put()
 # File: /workspace/project/demos/d02_put.cc
 
 ---
@@ -7,7 +7,7 @@
 - How Put() writes a key-value pair
 - What WriteOptions are and what sync means
 - What a Slice is (LevelDB's way of passing strings)
-- Where the data goes after Put() — WAL first, then MemTable
+- Where the data goes after Put() - WAL first, then MemTable
 - Why .ldb SSTable files still do not appear yet
 - Why the log file grew from 0 bytes (D1) to 227 bytes (D2)
 
@@ -59,7 +59,7 @@ int main() {
 
 ---
 
-## The Headers — What Each One Gives You
+## The Headers - What Each One Gives You
 
 ```cpp
 #include "leveldb/db.h"
@@ -81,7 +81,7 @@ As you add more features in later demos you add more headers:
 
 ## C++ Concepts
 
-### Arrow Operator — db->Put()
+### Arrow Operator - db->Put()
 ```cpp
 s = db->Put(wo, "name", "Dhrish");
 ```
@@ -91,10 +91,10 @@ To call a method on a pointer you use `->` not `.`
 - `->` is for pointers: `db->Put(...)` means "follow the pointer, then call Put"
 
 Think of it like:
-- options is the actual house     → options.door opens the door
-- db is the address on a map      → db->door follows the map to the house, opens door
+- options is the actual house     -> options.door opens the door
+- db is the address on a map      -> db->door follows the map to the house, opens door
 
-### WriteOptions — wo
+### WriteOptions - wo
 ```cpp
 leveldb::WriteOptions wo;
 wo.sync = false;
@@ -104,21 +104,21 @@ wo.sync = false;
 sync = false (default):
 - Write goes to OS memory buffer first
 - OS decides when to actually write to physical disk
-- Very fast — microseconds
+- Very fast - microseconds
 - Small risk: if power cuts between write and OS flush, data lost
 - Fine for benchmarking and most applications
 
 sync = true:
 - Calls fsync() after every write
 - Forces OS to immediately write to physical disk
-- Safe — survives power cuts
-- Very slow — ~100x slower than sync=false
+- Safe - survives power cuts
+- Very slow - ~100x slower than sync=false
 - Only use when you cannot afford to lose even one write
 
 For your project: always use sync=false for benchmarking.
 The SuRF paper also used sync=false for fair comparison.
 
-### Slice — LevelDB's String Type
+### Slice - LevelDB's String Type
 When you write:
 ```cpp
 db->Put(wo, "animal:bear", "Large omnivore");
@@ -131,7 +131,7 @@ struct Slice {
     size_t size;        // how many bytes
 };
 ```
-It is NOT a copy of the string — just a pointer + length.
+It is NOT a copy of the string - just a pointer + length.
 This is fast because LevelDB never copies string data unnecessarily.
 
 Important: Slice does not own the memory it points to.
@@ -140,7 +140,7 @@ The Slice just points to it. If the original string is deleted,
 the Slice becomes a dangling pointer (bug). For demos this is fine
 because string literals live for the entire program lifetime.
 
-### Why Prefixed Keys — animal:bear, animal:cat
+### Why Prefixed Keys - animal:bear, animal:cat
 LevelDB sorts ALL keys together lexicographically.
 Using a prefix like "animal:" groups related keys together on disk.
 ```
@@ -153,7 +153,7 @@ Sorted order:
 ```
 a < n < u in ASCII so all "animal:" keys come first.
 This prefix design enables efficient range scans:
-  Seek("animal:") → scan forward until key no longer starts with "animal:"
+  Seek("animal:") -> scan forward until key no longer starts with "animal:"
   Only reads the "animal:" section, skips "name" and "university" entirely.
 This is exactly the range scan pattern your project optimizes.
 
@@ -169,21 +169,21 @@ db->Put(wo, "animal:bear", "Large omnivore")
     v
 Step 1: Write to WAL (000003.log) first
         Binary record appended to the log file
-        This is crash safety — if program dies here,
+        This is crash safety - if program dies here,
         record can be recovered from the log on restart
     |
     v
 Step 2: Write to MemTable (in memory)
         The key-value pair goes into a sorted in-memory buffer
-        Very fast — just a memory write
+        Very fast - just a memory write
         NOT on disk yet as an SSTable
     |
     v
     Put() returns Status::OK()
 
 Later (when MemTable fills up to 4MB):
-    MemTable frozen → background thread flushes to SSTable (.ldb file)
-    WAL entries for flushed data become obsolete → old log deleted
+    MemTable frozen -> background thread flushes to SSTable (.ldb file)
+    WAL entries for flushed data become obsolete -> old log deleted
 ```
 
 ---
@@ -236,18 +236,18 @@ db->Put("animal:bear", "Large omnivore")
            |
            v
     MemTable (RAM)            <- sorted in-memory buffer
-    animal:bear → Large omnivore
-    animal:cat  → Domestic feline
-    animal:dog  → Domestic canine
-    name        → Dhrish
-    university  → USC
+    animal:bear -> Large omnivore
+    animal:cat  -> Domestic feline
+    animal:dog  -> Domestic canine
+    name        -> Dhrish
+    university  -> USC
            |
            | (when MemTable hits 4MB)
            v
     SSTable (.ldb file)       <- NOT YET, buffer not full
     [compaction thread]       <- background, you don't control it
     [filter built here]       <- CreateFilter() called here
-                                 YOUR SuRFPolicy runs here in Week 2
+                                 SuRFPolicy runs here in Week 2
 ```
 
 ---
@@ -263,7 +263,7 @@ called for every key, then FilterBlockBuilder::Finish() calls
 policy_->CreateFilter() with ALL the keys.
 
 In Week 2 you implement SuRFPolicy::CreateFilter() which receives
-exactly these keys — the same ones you just Put() here in D2.
+exactly these keys - the same ones you just Put() here in D2.
 
 ---
 

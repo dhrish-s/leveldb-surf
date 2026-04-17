@@ -1,11 +1,11 @@
 # How to Run Any Demo
-# Read this once — applies to every demo D1 through D12
+# Read this once - applies to every demo D1 through D12
 
 ---
 
 ## The 3 Steps (Same Every Time)
 
-### Step 1 — Create the file
+### Step 1 - Create the file
 Inside the container terminal type:
 
 ```
@@ -21,7 +21,7 @@ What this does:
 
 ---
 
-### Step 2 — Compile it
+### Step 2 - Compile it
 
 ```
 g++ -std=c++17 \
@@ -66,7 +66,7 @@ g++                              the C++ compiler
 
 ---
 
-### Step 3 — Run it
+### Step 3 - Run it
 
 ```
 rm -rf /tmp/mydb && /workspace/project/demos/dXX

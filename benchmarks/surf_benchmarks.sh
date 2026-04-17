@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # SuRF: Comprehensive Benchmark Script
-# CSCI-543 Spring 2026 — USC
+# CSCI-543 Spring 2026 - USC
 #
 # Runs all SuRF vs Bloom benchmarks and saves results to files.
 # Usage (inside container):
@@ -63,7 +63,7 @@ run_bench() {
     --num="$NUM_KEYS" \
     2>/dev/null | tee "$outfile"
 
-  echo -e "${GREEN}  → Saved to $outfile${NC}"
+  echo -e "${GREEN}  -> Saved to $outfile${NC}"
   echo ""
 }
 
@@ -84,10 +84,10 @@ run_bench "bloom" "seekrandom"  "bloom_seekrandom.txt"
 run_bench "surf"  "seekrandom"  "surf_seekrandom.txt"
 
 # ============================================================================
-# TEST 2: Variable miss rate — the KEY experiment
+# TEST 2: Variable miss rate - the KEY experiment
 # Shows SuRF advantage scaling with miss rate
-# At 100% miss: SuRF skips all SSTables with empty ranges → fastest
-# At 0% miss:   every range hits keys → SuRF overhead visible
+# At 100% miss: SuRF skips all SSTables with empty ranges -> fastest ( assumption )
+# At 0% miss:   every range hits keys -> SuRF overhead visible
 # ============================================================================
 echo -e "${CYAN}=== TEST 2: Variable Miss Rate (SuRF vs Bloom) ===${NC}"
 echo ""
@@ -99,7 +99,7 @@ done
 
 # ============================================================================
 # TEST 3: Wide range scan (range_width=100 instead of 10)
-# Shows SuRF advantage on broader range queries
+# Shows SuRF advantage on broader range queries - expected results
 # ============================================================================
 echo -e "${CYAN}=== TEST 3: Wide Range Scan ===${NC}"
 echo ""
@@ -114,7 +114,7 @@ run_bench "surf"  "surfscan_wide" "surf_surfscan_wide.txt"
 echo -e "${CYAN}=== TEST 4: Write Performance ===${NC}"
 echo ""
 
-# fillrandom alone — just measure write speed
+# fillrandom alone - just measure write speed
 rm -rf /tmp/dbbench
 echo -e "${YELLOW}Running: bloom / fillrandom${NC}"
 $DB_BENCH --filter=bloom --benchmarks=fillrandom --num=$NUM_KEYS 2>/dev/null \

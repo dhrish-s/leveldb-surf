@@ -5,7 +5,7 @@
 ---
 
 ## What This Demo Teaches
-- How options.filter_policy wires your filter into LevelDB
+- How options.filter_policy wires the filter into LevelDB
 - What filter_policy->Name() returns and why it must be consistent
 - How KeyMayMatch() runs during Get() at table.cc line 225
 - Why you must delete filter_policy AFTER delete db
@@ -91,7 +91,7 @@ TODAY (Bloom filter):
 options.filter_policy = leveldb::NewBloomFilterPolicy(10);
 ```
 
-WEEK 2 (your SuRF filter):
+WEEK 2 (the SuRF filter):
 ```cpp
 options.filter_policy = NewSuRFFilterPolicy();
 ```
@@ -142,7 +142,7 @@ When LevelDB opens an SSTable to read it, it checks:
 
 This is why Name() must NEVER change between writes and reads.
 
-Your SuRFPolicy::Name() must return "leveldb.SuRFFilter" consistently.
+SuRFPolicy::Name() must return "leveldb.SuRFFilter" consistently.
 If you change it after writing SSTables, all existing SSTables
 have their filters silently ignored. No error. Just slow reads.
 This is one of the hardest bugs to track down.
@@ -237,7 +237,7 @@ The 1149 bytes contain:
   Index block: maps key ranges to data block locations
   Footer: points to index and filter
 
-After Week 2 the filter block will contain your SuRF trie instead.
+After Week 2 the filter block will contain the SuRF trie instead.
 
 ```
 The filter block is INSIDE the .ldb file

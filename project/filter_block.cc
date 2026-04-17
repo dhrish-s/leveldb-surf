@@ -42,7 +42,7 @@ Slice FilterBlockBuilder::Finish() {
   }
 
   // If no keys were ever added, write original format so reader returns true
-  // Original format: array_offset=0, base_lg_=11 → num_=0 → fallthrough → true
+  // Original format: array_offset=0, base_lg_=11 -> num_=0 -> fallthrough -> true
   if (result_.empty()) {
     PutFixed32(&result_, 0);   // array_offset = 0
     result_.push_back(kFilterBaseLg);  // base_lg_ = 11

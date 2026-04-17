@@ -1,4 +1,4 @@
-# Week 3 Notes — Range Scan Integration
+# Week 3 Notes - Range Scan Integration
 # File: project/notes/week3_notes.md
 
 
@@ -8,7 +8,7 @@
 
 Wire `RangeMayMatch` into the range scan path so that when a range query
 `[lo, hi]` runs, SuRF is consulted for each candidate SSTable. If SuRF says
-no key exists in `[lo, hi]`, that SSTable is skipped entirely — no data block
+no key exists in `[lo, hi]`, that SSTable is skipped entirely - no data block
 reads.
 
 ---
@@ -22,7 +22,7 @@ This was the most important architectural insight of Week 3.
 The filter bytes (serialized SuRF trie) live inside the `.ldb` SSTable file
 in the filter block. To read those bytes, the file must be opened. Opening
 the file IS `FindTable()`. Therefore there is no way to call `RangeMayMatch`
-before `FindTable()` — the filter does not exist in memory yet.
+before `FindTable()` - the filter does not exist in memory yet.
 
 ```
 WRONG mental model:
@@ -62,7 +62,7 @@ DB::NewIterator(options)
 ```
 
 `GetFileIterator` takes `void* arg`. Originally this carried only
-`TableCache*`. We needed to carry `{cache, lo, hi}` — so we introduced
+`TableCache*`. We needed to carry `{cache, lo, hi}` - so we introduced
 `TableCacheArg` struct.
 
 ---
@@ -77,7 +77,7 @@ bool RangeMayMatch(const Slice& lo, const Slice& hi) const;
 
 **Why public:** `table_cache.cc` needs to call this. `Table::rep_` is private.
 We could use `friend class TableCache` but `Rep` is only forward-declared in
-`table.h` — its members are only visible in `table.cc`. So we expose the check
+`table.h` - its members are only visible in `table.cc`. So we expose the check
 as a proper public method.
 
 ### `table/table.cc`
@@ -105,7 +105,7 @@ Iterator* NewIterator(const ReadOptions& options,
 
 **Why `Slice()` defaults:** Many callers (compaction, recovery,
 `ApproximateOffsetOf`) call `NewIterator` without range bounds. Default empty
-`Slice` means "no range filter" — those callers work unchanged.
+`Slice` means "no range filter" - those callers work unchanged.
 
 **Why `lo` and `hi` before `tableptr`:** All three have defaults. C++ requires
 that once you have a default parameter, all subsequent parameters must also have
@@ -113,7 +113,7 @@ defaults. `tableptr` was already defaulting to `nullptr`, so `lo` and `hi` can
 go before it.
 
 ### `db/table_cache.cc`
-Core change — added `RangeMayMatch` check after `FindTable()`:
+Core change - added `RangeMayMatch` check after `FindTable()`:
 ```cpp
 if (!lo.empty() && !hi.empty()) {
   if (!table->RangeMayMatch(lo, hi)) {
@@ -125,12 +125,12 @@ if (!lo.empty() && !hi.empty()) {
 
 **Why `cache_->Release(handle)`:** `FindTable()` incremented the cache
 reference count. If we skip the SSTable, we must release the handle or
-it leaks — the LRU cache can never evict that entry.
+it leaks - the LRU cache can never evict that entry.
 
 **Why `!lo.empty() && !hi.empty()`:** Empty Slice = default = no range
 provided. This guard makes the check a no-op for all existing callers.
 
-Also added `#include "table/filter_block.h"` — needed for `FilterBlockReader`
+Also added `#include "table/filter_block.h"` - needed for `FilterBlockReader`
 type. Later removed when we moved to `table->RangeMayMatch()` public method.
 
 ### `db/version_set.h`
@@ -166,7 +166,7 @@ so `GetFileIterator` can pass them to `NewIterator`.
 
 **Why `DeleteTableCacheArg`:** The struct is heap-allocated. When the
 `TwoLevelIterator` is destroyed, it calls registered cleanups. We register
-`DeleteTableCacheArg` to free the struct — otherwise memory leaks.
+`DeleteTableCacheArg` to free the struct - otherwise memory leaks.
 
 **2. Updated `GetFileIterator`** to unpack the struct:
 ```cpp
@@ -204,7 +204,7 @@ void Version::AddIterators(..., const Slice& lo, const Slice& hi) {
 ```
 
 **5. Updated `MakeInputIterator`** (compaction):
-Compaction also calls `GetFileIterator` but has no range — must pass empty
+Compaction also calls `GetFileIterator` but has no range - must pass empty
 struct:
 ```cpp
 TableCacheArg* carg = new TableCacheArg{table_cache_, Slice(), Slice()};
@@ -214,7 +214,7 @@ list[num++] = citer;
 ```
 
 **6. Fixed `ApproximateOffsetOf`**:
-This function calls `NewIterator` with `tableptr` — had to add explicit
+This function calls `NewIterator` with `tableptr` - had to add explicit
 `Slice(), Slice()` before `&tableptr` when signatures changed:
 ```cpp
 Iterator* iter = table_cache_->NewIterator(
@@ -226,26 +226,26 @@ Iterator* iter = table_cache_->NewIterator(
 
 ## Errors Encountered and Fixed
 
-### Error 1 — `table_cache.h` not copied by `rebuild.sh`
+### Error 1 - `table_cache.h` not copied by `rebuild.sh`
 `rebuild.sh` copied `table_cache.cc` but not `table_cache.h`. The container
 had the old header. Fixed by adding copy rule to `rebuild.sh`.
 
-### Error 2 — Signature parameter order mismatch
+### Error 2 - Signature parameter order mismatch
 The `.cc` had `(options, num, size, lo, hi, tableptr)` but the `.h` still had
 old order. Fixed by aligning both to the same order.
 
-### Error 3 — `table->rep_->filter` incomplete type
+### Error 3 - `table->rep_->filter` incomplete type
 `table.h` only has `struct Rep;` as a forward declaration. `Rep` is fully
 defined only in `table.cc`. Even with `friend class TableCache`, `table_cache.cc`
 cannot access `rep_->filter` because it does not know what `Rep` contains.
 Fixed by adding `bool RangeMayMatch(lo, hi)` as a public method on `Table`.
 
-### Error 4 — `KeyMayMatch` vs `RangeMayMatch` typo
+### Error 4 - `KeyMayMatch` vs `RangeMayMatch` typo
 A teammate wrote `filter->KeyMayMatch(lo, hi)` instead of
 `filter->RangeMayMatch(lo, hi)`. Type error: `KeyMayMatch` takes
 `(uint64_t block_offset, const Slice& key)` not two Slices.
 
-### Error 5 — `version_set.h` not in project folder
+### Error 5 - `version_set.h` not in project folder
 Had to copy from container: `cp /workspace/leveldb/db/version_set.h /workspace/project/version_set.h`
 
 ---
@@ -268,14 +268,14 @@ DB::NewIterator(options)
                       TableCache::NewIterator(options, num, size, lo, hi)
                         FindTable()  ← opens SSTable, loads filter
                         if lo/hi non-empty: table->RangeMayMatch(lo, hi)
-                          false → cache_->Release(); return NewEmptyIterator()
-                          true  → table->NewIterator()
+                          false -> cache_->Release(); return NewEmptyIterator()
+                          true  -> table->NewIterator()
                     Level 1+:
                       NewConcatenatingIterator(options, level, lo, hi)
-                        TableCacheArg{cache, lo, hi} → void* arg
+                        TableCacheArg{cache, lo, hi} -> void* arg
                         NewTwoLevelIterator(LevelFileNumIterator,
                                            GetFileIterator, arg)
                           GetFileIterator unpacks arg
-                          → TableCache::NewIterator(..., lo, hi)
+                          -> TableCache::NewIterator(..., lo, hi)
                              same check as Level 0
 ```

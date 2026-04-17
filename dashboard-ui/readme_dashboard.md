@@ -95,12 +95,12 @@ src/
 
 ## Data Flow
 
-1. App mounts → fetch /api/health check
+1. App mounts -> fetch /api/health check
 2. Fetch /api/meta (available filters)
 3. Fetch /api/summary (aggregated metrics)
 4. Fetch /api/events with current filters
 5. Poll every 2 seconds for updates
-6. On filter change → fetch new events
+6. On filter change -> fetch new events
 
 ## Customization
 

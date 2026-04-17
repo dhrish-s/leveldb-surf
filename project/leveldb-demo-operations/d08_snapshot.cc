@@ -17,7 +17,7 @@ int main() {
     db->Put(wo, "animal:dog",  "Domestic canine");
     std::cout << "Written: bear, cat, dog\n\n";
 
-    // Take a snapshot — freeze the database state right now
+    // Take a snapshot - freeze the database state right now
     // snap records the current sequence number internally
     // All reads through snap will see: bear, cat, dog
     // No matter what happens to the database after this line
@@ -31,7 +31,7 @@ int main() {
     db->Delete(wo, "animal:bear");
     std::cout << "After snapshot: added elephant+fox, deleted bear\n\n";
 
-        // Read WITHOUT snapshot — sees latest state
+        // Read WITHOUT snapshot - sees latest state
     // bear deleted, elephant and fox exist
     leveldb::ReadOptions ro_latest;
     s = db->Get(ro_latest, "animal:bear", &value);
@@ -40,7 +40,7 @@ int main() {
     s = db->Get(ro_latest, "animal:elephant", &value);
     std::cout << "  animal:elephant - " << value << "\n\n";
 
-    // Read WITH snapshot — sees frozen state (bear exists, elephant does not)
+    // Read WITH snapshot - sees frozen state (bear exists, elephant does not)
     leveldb::ReadOptions ro_snap;
     ro_snap.snapshot = snap;
     s = db->Get(ro_snap, "animal:bear", &value);

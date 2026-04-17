@@ -19,9 +19,9 @@ int main()
 
   // ReadOptions - controls howthe read happens
   // We use all defaults , we need 3 parameters here : checksums,fill_cache and snapshots
-  // ro.verify_checksums = false (default) — skip checksum verification
-  // ro.fill_cache = true (default)        — cache reads in block cache
-  // ro.snapshot = nullptr (default)       — read latest data
+  // ro.verify_checksums = false (default) - skip checksum verification
+  // ro.fill_cache = true (default)        - cache reads in block cache
+  // ro.snapshot = nullptr (default)       - read latest data
 
   leveldb::ReadOptions ro;
 
@@ -45,7 +45,7 @@ int main()
     // table.cc line 225: if (!filter->KeyMayMatch(...)) - skip SSTable
     s = db->Get(ro, "animal:zebra", &value);
     if (s.IsNotFound()) {
-        std::cout << "Get animal:zebra → NotFound (never written)\n";
+        std::cout << "Get animal:zebra -> NotFound (never written)\n";
         std::cout << "  Bloom filter blocked the disk read\n";
     }
 
@@ -53,7 +53,7 @@ int main()
     // "Animal:cat" != "animal:cat"
     s = db->Get(ro, "Animal:cat", &value);
     if (s.IsNotFound()) {
-        std::cout << "Get Animal:cat   → NotFound (wrong case)\n";
+        std::cout << "Get Animal:cat   -> NotFound (wrong case)\n";
         std::cout << "  Keys are case sensitive\n";
     }
 
@@ -62,7 +62,7 @@ int main()
     // Get() always returns the LATEST value
     db->Put(wo, "animal:cat", "Cat: UPDATED");
     s = db->Get(ro, "animal:cat", &value);
-    std::cout << "Get animal:cat (after update) → " << value << "\n";
+    std::cout << "Get animal:cat (after update) -> " << value << "\n";
 
 
 

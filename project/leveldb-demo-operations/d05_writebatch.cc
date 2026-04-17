@@ -45,7 +45,7 @@ int main() {
     // One single WAL record for all 4 operations
     // All succeed or none do
     s= db->Write(wo, &batch);
-    std::cout << "db->Write(batch) → " << s.ToString() << "\n\n";
+    std::cout << "db->Write(batch) -> " << s.ToString() << "\n\n";
 
     //verify the 4 operations
     s = db -> Get(ro,"animal:cat",&value);

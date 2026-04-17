@@ -109,13 +109,13 @@ function Badge({ text, className }: { text: string; className: string }) {
 function EventDetails({ event }: { event: MetricsEvent }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-      <Detail label="Filter May Match" value={event.filter_may_match !== undefined ? (event.filter_may_match ? 'Yes' : 'No') : '—'} />
-      <Detail label="False Positive" value={event.false_positive !== undefined ? (event.false_positive ? 'Yes' : 'No') : '—'} />
-      <Detail label="SSTables Considered" value={event.sstables_considered?.toString() || '—'} />
-      <Detail label="SSTables Pruned" value={event.sstables_pruned?.toString() || '—'} />
-      <Detail label="SSTables Opened" value={event.sstables_opened?.toString() || '—'} />
-      <Detail label="Query Lo" value={event.query_lo || '—'} />
-      <Detail label="Query Hi" value={event.query_hi || '—'} />
+      <Detail label="Filter May Match" value={event.filter_may_match !== undefined ? (event.filter_may_match ? 'Yes' : 'No') : '-'} />
+      <Detail label="False Positive" value={event.false_positive !== undefined ? (event.false_positive ? 'Yes' : 'No') : '-'} />
+      <Detail label="SSTables Considered" value={event.sstables_considered?.toString() || '-'} />
+      <Detail label="SSTables Pruned" value={event.sstables_pruned?.toString() || '-'} />
+      <Detail label="SSTables Opened" value={event.sstables_opened?.toString() || '-'} />
+      <Detail label="Query Lo" value={event.query_lo || '-'} />
+      <Detail label="Query Hi" value={event.query_hi || '-'} />
       <Detail label="Timestamp" value={new Date(event.timestamp_us / 1000).toLocaleTimeString()} />
     </div>
   );

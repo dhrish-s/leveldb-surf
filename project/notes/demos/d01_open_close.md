@@ -1,4 +1,4 @@
-# D1 — Open and Close a Database
+# D1 - Open and Close a Database
 # First demo. Everything starts here.
 
 ---
@@ -7,9 +7,9 @@
 - How to open a LevelDB database
 - What Options are and why they matter
 - What files LevelDB creates on disk and what each one does
-- The Status object — how LevelDB reports success or failure
+- The Status object - how LevelDB reports success or failure
 - Why you must always delete the db pointer at the end
-- Stack vs Heap — the most important C++ concept for this project
+- Stack vs Heap - the most important C++ concept for this project
 
 ---
 
@@ -45,7 +45,7 @@ int main() {
 
 ## C++ Concepts Explained
 
-### Namespaces — leveldb::
+### Namespaces - leveldb::
 ```cpp
 leveldb::Options options;
 leveldb::DB* db;
@@ -57,13 +57,13 @@ Everything in LevelDB lives inside the `leveldb::` namespace.
 
 ---
 
-### Struct — Options
+### Struct - Options
 ```cpp
 leveldb::Options options;
 options.create_if_missing = true;
 ```
 A struct is a collection of settings grouped together.
-Imagine a form with checkboxes — you fill in what you need, leave rest as default.
+Imagine a form with checkboxes - you fill in what you need, leave rest as default.
 `options.create_if_missing = true` means:
 - If /tmp/mydb folder does not exist, create it
 - If false and folder does not exist, Open() returns an error
@@ -72,30 +72,30 @@ Other useful Options fields (you will use these later):
 ```
 options.write_buffer_size   how much RAM before flushing to SSTable (default 4MB)
 options.block_cache         how much RAM for caching read data (default 8MB)
-options.filter_policy       YOUR PLUG-IN POINT — Bloom or SuRF goes here
+options.filter_policy       YOUR PLUG-IN POINT - Bloom or SuRF goes here
 options.compression         Snappy compression on/off (default on)
 ```
 
 ---
 
-### Pointer — DB*
+### Pointer - DB*
 ```cpp
 leveldb::DB* db;
 ```
 The `*` means pointer. A pointer is a variable that holds a memory address.
-`db` itself is only 8 bytes — it just stores the address of where the DB object lives.
+`db` itself is only 8 bytes - it just stores the address of where the DB object lives.
 The actual DB object is created by Open() on the heap.
 
 ---
 
-### Stack vs Heap — THE most important C++ concept
+### Stack vs Heap - THE most important C++ concept
 
 Imagine two storage areas:
 
 ```
 STACK                              HEAP
 like a notepad on your desk        like a warehouse
-automatic — written and erased     manual — you put things in
+automatic - written and erased     manual - you put things in
   when function starts/ends          and you must take them out
 small and fast                     large and slower
 Options options; lives here        DB object lives here
@@ -104,7 +104,7 @@ Options options; lives here        DB object lives here
 ```
 
 ```cpp
-leveldb::Options options;      // stack — automatic
+leveldb::Options options;      // stack - automatic
 leveldb::DB* db;               // pointer on stack (8 bytes)
 DB::Open(..., &db);            // DB object created on HEAP
 delete db;                     // YOU delete it from heap
@@ -117,23 +117,23 @@ If you forget `delete db`:
 
 ---
 
-### Static Method — DB::Open
+### Static Method - DB::Open
 ```cpp
 leveldb::Status s = leveldb::DB::Open(options, "/tmp/mydb", &db);
 ```
 `DB::Open` is a static method. You call it on the CLASS, not on an object.
-Normal method: `db->SomeMethod()`   — called on an existing object
-Static method: `DB::Open()`         — called on the class to CREATE an object
+Normal method: `db->SomeMethod()`   - called on an existing object
+Static method: `DB::Open()`         - called on the class to CREATE an object
 
 The `&db` part:
 `&` means "address of". We pass the address of our pointer variable.
 Open() then writes the new DB object's address into that location.
 After the call, `db` holds the address of the newly created database.
-This is how C++ functions return multiple things — pass address of result variable.
+This is how C++ functions return multiple things - pass address of result variable.
 
 ---
 
-### Status Object — Error Handling
+### Status Object - Error Handling
 ```cpp
 leveldb::Status s = leveldb::DB::Open(options, "/tmp/mydb", &db);
 if (!s.ok()) {
@@ -153,7 +153,7 @@ Always check status. Ignoring it means silent failures.
 
 ---
 
-### delete db — Always Required
+### delete db - Always Required
 ```cpp
 delete db;
 ```
@@ -161,7 +161,7 @@ delete db;
 LevelDB's destructor does three critical things:
 1. Flushes pending writes from the write buffer to disk
 2. Releases the LOCK file so another process can open the database
-3. Frees all memory — block cache, filter, index blocks
+3. Frees all memory - block cache, filter, index blocks
 
 RULE: Every `new` or `DB::Open()` must have a matching `delete`.
 
@@ -185,30 +185,30 @@ drwxrwxrwt  ..
 -rw-r--r--  MANIFEST-000002 50 bytes
 ```
 
-000003.log — 0 bytes
+000003.log - 0 bytes
 - Write-Ahead Log (WAL). Every Put() goes here BEFORE going to SSTable.
 - Purpose: crash recovery. If program dies, LevelDB reads this on restart.
 - Empty (0 bytes) because we wrote zero keys.
 - Number 000003 = LevelDB's global file sequence counter (starts at 1, increments).
 
-CURRENT — 16 bytes
+CURRENT - 16 bytes
 - Contains exactly one line: "MANIFEST-000002\n"
 - Always points to the active MANIFEST file.
 - LevelDB reads CURRENT first on every startup to find the right MANIFEST.
 
-LOCK — 0 bytes
+LOCK - 0 bytes
 - An empty file. Its job is to be locked, not to store data.
 - LevelDB calls flock() on it when the database opens.
 - If another process tries to open same database, flock() fails = safe.
 - Released when you delete db.
 
-LOG — 147 bytes
+LOG - 147 bytes
 - Human readable text log. Not the WAL.
 - Run: cat /tmp/mydb/LOG  to see the startup messages inside.
 - More entries added as writes and compaction happen.
 - Useful for debugging.
 
-MANIFEST-000002 — 50 bytes
+MANIFEST-000002 - 50 bytes
 - Tracks which SSTable .ldb files currently exist.
 - Records the key range (smallest, largest) each SSTable covers.
 - Updated every compaction.
@@ -257,7 +257,7 @@ options.filter_policy = NewSuRFFilterPolicy();   // Week 2
 
 This one line in Options is the ONLY user-visible change when you finish the project.
 D1 shows you exactly where that plug-in point is.
-Everything else — compaction, SSTable writing, filter lookups — happens
+Everything else - compaction, SSTable writing, filter lookups - happens
 automatically through the FilterPolicy interface you studied in Part B.
 
 ---

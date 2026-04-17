@@ -298,7 +298,7 @@ LevelDB has 7 levels (0 through 6):
 Level 0: fresh SSTables from MemTable flush
          files CAN overlap each other
          compaction triggered when >= 4 files
-         YOUR filter checked most often here
+         the filter is checked most often here
 
 Level 1: after first compaction from Level 0
          files do NOT overlap (sorted, non-overlapping)
@@ -336,7 +336,7 @@ The SSTable listing showed:
 The smallest and largest keys (key:0 and key:99) are the FileMetaData
 that version_set.cc uses for the coarse filter check you read in B7.
 
-Your SuRF filter is built from ALL keys in this SSTable (key:0 through key:99).
+The SuRF filter is built from ALL keys in this SSTable (key:0 through key:99).
 When a range query [key:50, key:60] arrives:
   Coarse check: does [key:0, key:99] overlap [key:50, key:60]? YES -> pass
   SuRF check: RangeMayMatch("key:50", "key:60") -> true (keys exist here)
@@ -347,8 +347,8 @@ When a range query [key:aaa, key:zzz] arrives (no such keys exist):
   SuRF check: RangeMayMatch("key:aaa", "key:zzz") -> false (no keys there)
   Skip SSTable -> zero disk reads -> fast
 
-The 968-byte file on disk contains your Bloom filter block.
-After Week 2, it will contain your SuRF filter block instead.
+The 968-byte file on disk contains the Bloom filter block.
+After Week 2, it will contain the SuRF filter block instead.
 GetProperty lets you verify SSTables were created and filters were built.
 
 ---

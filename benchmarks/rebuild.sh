@@ -1,12 +1,12 @@
 #!/bin/bash
-# rebuild.sh — run inside the container after every code change
+# rebuild.sh - run inside the container after every code change
 # Usage: bash /workspace/benchmarks/rebuild.sh
 
 set -e
 
 echo ""
 echo "============================================"
-echo "  LevelDB + SuRF — Rebuild"
+echo "  LevelDB + SuRF - Rebuild"
 echo "============================================"
 
 # STEP 1: Copy your files into LevelDB source tree

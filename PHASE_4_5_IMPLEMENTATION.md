@@ -152,20 +152,20 @@ METRICS_FILE=/path/to/metrics.jsonl PORT=3001 npm start
 
 ```
 React App (App.tsx with state management)
-    ├→ Header (displays meta info)
-    ├→ FilterBar (dropdown controls)
-    ├→ SummaryCards (aggregate stats)
-    ├→ ComparisonCharts (5 Recharts)
-    ├→ EventTable (query trace)
-    ├→ EventInspector (selected event detail)
-    └→ LoadingState (UX overlay)
+    ├-> Header (displays meta info)
+    ├-> FilterBar (dropdown controls)
+    ├-> SummaryCards (aggregate stats)
+    ├-> ComparisonCharts (5 Recharts)
+    ├-> EventTable (query trace)
+    ├-> EventInspector (selected event detail)
+    └-> LoadingState (UX overlay)
 
 Data Flow:
 App.tsx (useEffect)
     ↓
 lib/api.ts (fetch functions)
     ↓
-Vite Proxy → http://localhost:3001/api
+Vite Proxy -> http://localhost:3001/api
     ↓
 Backend REST API
     ↓
@@ -196,7 +196,7 @@ All functions have try-catch and sensible defaults for failures
 #### lib/metrics.ts
 Formatting and utility functions:
 - `formatLatency(us)`: Format microseconds to readable time (µs/ms/s)
-- `formatPercent(n)`: Format number as percentage (null → "—")
+- `formatPercent(n)`: Format number as percentage (null -> "-")
 - `formatNumber(n)`: Format with K/M abbreviations
 - `getFilterColor()`: Return CSS class for badge based on filter type
 - `getQueryTypeColor()`: Return CSS class for badge based on query type
@@ -211,10 +211,10 @@ Displays dashboard metadata:
 
 #### components/FilterBar.tsx
 Filter control dropdowns:
-- Filter Type (all, Bloom, SuRF) — dropdown populated from meta.filter_types
-- Query Type (all + dynamic) — dropdown populated from meta.query_types
-- Benchmark Name (all + dynamic) — dropdown populated from meta.benchmark_names
-- Limit (100, 500, 1000, 10000, all) — fixed list
+- Filter Type (all, Bloom, SuRF) - dropdown populated from meta.filter_types
+- Query Type (all + dynamic) - dropdown populated from meta.query_types
+- Benchmark Name (all + dynamic) - dropdown populated from meta.benchmark_names
+- Limit (100, 500, 1000, 10000, all) - fixed list
 - onChange handler updates App state and triggers re-fetch
 
 #### components/SummaryCards.tsx
@@ -257,10 +257,10 @@ All charts include Tooltips, Legends, properly labeled axes, and custom colors (
 Per-query event table with drill-down:
 - Main columns: ID, Benchmark, Filter (badge), Query Type (badge), Latency, Match (badge)
 - Expandable row shows detailed fields:
-  - filter_may_match (Yes/No or —)
-  - false_positive (Yes/No or —)
-  - sstables_considered, sstables_pruned, sstables_opened (numbers or —)
-  - query_lo, query_hi (range bounds or —)
+  - filter_may_match (Yes/No or -)
+  - false_positive (Yes/No or -)
+  - sstables_considered, sstables_pruned, sstables_opened (numbers or -)
+  - query_lo, query_hi (range bounds or -)
   - timestamp_us (formatted as time)
 - Hover effects, badge styling, click-to-expand chevron
 

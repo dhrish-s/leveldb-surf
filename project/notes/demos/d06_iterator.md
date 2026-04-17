@@ -1,4 +1,4 @@
-# D6 — Iterator (Full Scan)
+# D6 - Iterator (Full Scan)
 # File: /workspace/project/demos/d06_iterator.cc
 
 ---
@@ -74,14 +74,14 @@ int main() {
 
 ---
 
-## New Method — db->NewIterator()
+## New Method - db->NewIterator()
 
 ```cpp
 leveldb::Iterator* it = db->NewIterator(ro);
 ```
 Returns a pointer to an Iterator object created on the heap.
 The Iterator is a TwoLevelIterator (from table/two_level_iterator.cc).
-You must delete it when done — it holds file handles and memory.
+You must delete it when done - it holds file handles and memory.
 
 Parameter: ro (ReadOptions)
   ro.fill_cache = false    do not put scanned blocks into block cache
@@ -104,7 +104,7 @@ it->SeekToFirst();
 ```
 Positions the iterator at the SMALLEST key in the database.
 Internally: seeks to beginning of Level 0, then merges with other levels.
-O(log n) — uses the index blocks to jump directly to the start.
+O(log n) - uses the index blocks to jump directly to the start.
 
 ### Valid()
 ```cpp
@@ -135,7 +135,7 @@ key() and value() are only valid while the iterator has not advanced.
 
 ---
 
-## The For Loop Pattern — Standard Iterator Usage
+## The For Loop Pattern - Standard Iterator Usage
 
 ```cpp
 for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -190,7 +190,7 @@ Rule: every db->NewIterator() must have a matching delete it.
 ```cpp
 leveldb::Iterator* it = db->NewIterator(ro);
 ```
-Same pattern as leveldb::DB* db — pointer to heap object.
+Same pattern as leveldb::DB* db - pointer to heap object.
 db->NewIterator() creates the object, you must delete it.
 
 ### ++count in the Loop
@@ -198,15 +198,15 @@ db->NewIterator() creates the object, you must delete it.
 std::cout << "[" << ++count << "]"
 ```
 ++count means increment THEN use. So first iteration prints [1].
-count++ would mean use THEN increment — first would print [0].
+count++ would mean use THEN increment - first would print [0].
 Pre-increment (++count) is the correct form for numbering from 1.
 
 ### Slice::ToString()
 ```cpp
 it->key().ToString()
 ```
-key() returns a Slice — just a pointer and length, no copy.
-.ToString() makes a std::string copy — safe to store and print.
+key() returns a Slice - just a pointer and length, no copy.
+.ToString() makes a std::string copy - safe to store and print.
 Always call .ToString() when you need the string value.
 
 ---
@@ -233,16 +233,16 @@ Completely random order. LevelDB sorted in MemTable immediately.
 
 Three levels of sorting:
 
-Level 1 — prefix order:
+Level 1 - prefix order:
   animal: before plant: before sensor:
   'a'=97 < 'p'=112 < 's'=115 in ASCII
   LevelDB compares byte by byte from left to right
 
-Level 2 — within animal: prefix:
+Level 2 - within animal: prefix:
   bear < cat < dog < fox
   'b'=98 < 'c'=99 < 'd'=100 < 'f'=102
 
-Level 3 — sensor timestamps:
+Level 3 - sensor timestamps:
   10:00 < 10:05
   Time order works because ISO timestamp format sorts lexicographically
   "10:00" < "10:05" because '0' < '5' at position 4
@@ -255,7 +255,7 @@ All 8 keys visited exactly once. Iterator walked every key in order.
 
 ---
 
-## Lexicographic Sort — How LevelDB Compares Keys
+## Lexicographic Sort - How LevelDB Compares Keys
 
 LevelDB compares keys byte by byte from left to right.
 The first byte that differs determines the order.
@@ -263,10 +263,10 @@ The first byte that differs determines the order.
 ```
 "animal:bear" vs "animal:cat":
   a=a, n=n, i=i, m=m, a=a, l=l, :=:, b vs c
-  'b'(98) < 'c'(99) → "animal:bear" comes first
+  'b'(98) < 'c'(99) -> "animal:bear" comes first
 
 "animal:fox" vs "plant:cactus":
-  a vs p → 'a'(97) < 'p'(112) → "animal:fox" comes first
+  a vs p -> 'a'(97) < 'p'(112) -> "animal:fox" comes first
 ```
 
 This is identical to dictionary order for English words.
@@ -278,7 +278,7 @@ This is why you must zero-pad numbers: "sensor:09" < "sensor:10"
 
 ---
 
-## The Iterator Stack — Connection to Your Project
+## The Iterator Stack - Connection to Your Project
 
 When you called db->NewIterator():
 ```

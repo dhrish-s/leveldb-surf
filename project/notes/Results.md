@@ -1,4 +1,4 @@
-# Benchmark Results — LevelDB + SuRF
+# Benchmark Results - LevelDB + SuRF
 # CSCI-543 Spring 2026
 # Machine: Intel i7-10750H / i5-1135G7, 8-12 cores, Ubuntu 22.04 Docker
 # LevelDB version 1.23
@@ -6,215 +6,79 @@
 
 ---
 
-## Baseline — Bloom Filter (1M keys, March 26 2026)
+## Latest Benchmark Results (April 13, 2026)
 
-Captured before any SuRF changes. These are the reference numbers.
+Based on the final benchmark run with 1,000,000 keys.
 
-```
-Benchmark    Result          Notes
------------  --------------  ------------------------------------
-fillrandom   3.953 µs/op     27.8 MB/s
-seekrandom   4.317 µs/op     the gap vs readrandom = wasted I/O
-readrandom   3.691 µs/op
-readseq      0.213 µs/op     452 MB/s
-```
+### Standard Benchmarks
 
-The 0.626 µs gap between seekrandom and readrandom represents the extra cost
-of opening SSTables during range scans that contain no matching keys.
-SuRF's job is to eliminate that wasted work.
+| Benchmark   | Bloom (µs/op) | SuRF (µs/op) | Change    | Winner | Notes |
+|-------------|---------------|--------------|-----------|--------|-------|
+| readrandom  | 2.847        | 8.977       | +215.2%  | Bloom | Point lookups - Bloom's bit-check is cheaper than SuRF's trie deserialization |
+| readseq     | 0.212        | 0.447       | +110.8%  | Bloom | Sequential scan - SuRF filter is larger and costlier to load |
+| seekrandom  | 8.891        | 6.634       | -25.4%   | SuRF  | Random seeks - SuRF's trie structure aids navigation |
+| fillrandom  | 2.638        | 4.078       | +54.6%   | Bloom | Writes - SuRF trie construction is more expensive than Bloom hashing |
 
----
+### Variable Miss Rate - Range Scans (range_width=10)
 
-## SuRF Standard Benchmarks (1M keys, with std::string buf copy, no cache)
+| Benchmark    | Bloom (µs/op) | SuRF (µs/op) | Change   | Winner | Keys Scanned |
+|--------------|---------------|--------------|----------|--------|--------------|
+| surfscan100  | 1.298        | 1.374       | +5.9%   | Bloom | 0 |
+| surfscan75   | 3.922        | 5.005       | +27.6%  | Bloom | 1,736,663 |
+| surfscan50   | 5.213        | 4.760       | -8.7%   | SuRF  | 3,478,645 |
+| surfscan25   | 7.214        | 5.817       | -19.4%  | SuRF  | 5,215,152 |
+| surfscan0    | 7.503        | 6.934       | -7.6%   | SuRF  | 6,952,830 |
 
-First SuRF run. Before alignment fix and before thread_local cache.
-OOM killed at 1M keys — per-call 42KB allocation too expensive.
+**Key Findings:**
+- SuRF advantage emerges at 50% miss rate and grows through 25% miss rate
+- SuRF is fastest relative to Bloom at 25% miss rate (-19.4%)
+- At 100% miss, both filters are fast (~1.3 µs) because no data blocks are read
+- At 0% miss (all hits), SuRF is still 7.6% faster, indicating SuRF trie aids range iteration even when ranges contain keys
 
-Ran at 100K keys only:
-```
-Benchmark    Bloom          SuRF           Change
------------  -------------  -------------  --------
-fillrandom   ~3.953 µs/op   40.477 µs/op   10x slower (per-call deSerialize)
-readrandom   ~3.691 µs/op   62.829 µs/op   17x slower
-```
+### Wide Range Scan (range_width=100, 100% miss)
 
-These numbers confirmed the alignment fix was needed and the per-call
-deserialization cost was the bottleneck.
+| Benchmark     | Bloom (µs/op) | SuRF (µs/op) | Change | Winner |
+|---------------|---------------|--------------|--------|--------|
+| surfscan_wide | 1.361        | 1.411       | +3.7% | Bloom |
 
----
-
-## After Alignment Fix + thread_local Cache (100K keys)
-
-Added `std::string buf` copy for alignment + `thread_local` SuRF cache.
-Pointer comparison instead of per-call copy on cache hits.
-
-```
-Benchmark    Bloom          SuRF           Change
------------  -------------  -------------  --------
-fillrandom   1.780 µs/op    1.892 µs/op    +6%
-seekrandom   —              11.774 µs/op   —
-readrandom   —              10.486 µs/op   —
-readseq      —              0.412 µs/op    —
-```
-
-`readrandom` dropped from 62 µs to 10 µs — thread_local cache working.
+Note: At 100% miss rate with wide ranges, both filters produce nearly identical results because no data blocks are read.
 
 ---
 
-## SuRF Standard Benchmarks (1M keys, with thread_local cache) — FINAL
+## Trade-off Summary
 
-```
-Benchmark    Bloom          SuRF           Change        Notes
------------  -------------  -------------  ------------  --------------------
-fillrandom   3.953 µs/op    4.653 µs/op    +18%          trie build cost
-seekrandom   4.317 µs/op    10.781 µs/op   +150%         RangeMayMatch not triggered
-readrandom   3.691 µs/op    5.606 µs/op    +52%          thread_local helps
-readseq      0.213 µs/op    0.245 µs/op    +15%          nearly identical
-```
+**SuRF wins:**
+- Range scans with mixed hit/miss workloads (surfscan50: -8.7%, surfscan25: -19.4%)
+- Range scans with all hits (surfscan0: -7.6%)
+- Random seeks (seekrandom: -25.4%)
 
-seekrandom does not show SuRF advantage because `db_bench seekrandom` never
-sets `options.lo/hi`. `RangeMayMatch` is never called. Point query path only.
+**Bloom wins:**
+- Point lookups (readrandom: +215.2%)
+- Sequential reads (readseq: +110.8%)
+- Write throughput (fillrandom: +54.6%)
+- Pure miss range scans (surfscan100: +5.9% - but both are fast)
 
----
-
-## surfscan — Dense Ranges (100K keys, ranges of 100 in same key space)
-
-```
-Benchmark    Bloom          SuRF           Notes
------------  -------------  -------------  ------------------------------------
-surfscan     7.523 µs/op    7.880 µs/op    63M keys found — ranges NOT empty
-```
-
-No advantage because 1M key space with 100K keys and 100-key ranges means
-~64 keys found per range. SuRF has nothing to skip.
+**Conclusion:**
+The right filter depends on workload. Applications dominated by range scans and seeks (time-series databases, analytics, blockchain range queries) benefit from SuRF. Applications dominated by point lookups and writes (caching, exact-key retrieval) are better served by Bloom.
 
 ---
 
-## surfscan — Sparse Ranges 10x (100K keys, 10x larger query space)
-
-```
-Benchmark    Bloom          SuRF           Notes
------------  -------------  -------------  ------------------------------------
-surfscan     ~7.5 µs/op     ~7.9 µs/op     6M keys found — still too dense
-```
-
----
-
-## surfscan — Sparse Ranges 100x (100K keys, 100x larger query space)
-
-```
-Benchmark    Bloom          SuRF           Notes
------------  -------------  -------------  ------------------------------------
-surfscan     1.560 µs/op    1.552 µs/op    645K keys found — nearly tied
-```
-
-Getting closer but block cache absorbs the difference at 100K keys.
-
----
-
-## surfscan — Dense DB, Dense Query (1M keys, ranges within key space)
-
-```
-Benchmark    Bloom          SuRF           Notes
------------  -------------  -------------  ------------------------------------
-surfscan     1.587 µs/op    1.607 µs/op    637K keys found — block cache wins
-```
-
-Both nearly identical. At 62MB DB fitting entirely in block cache, SSTable
-skipping saves almost nothing since files are read from RAM anyway.
-
----
-
-## surfscan — Empty Ranges (1M keys, query ABOVE key space) — KEY RESULT
-
-Keys inserted: 0 to 999999
-Ranges queried: 1000000 to 1999999 — GUARANTEED EMPTY
-
-```
-Benchmark    Bloom          SuRF           Change        Notes
------------  -------------  -------------  ------------  --------------------
-surfscan     2.102 µs/op    1.420 µs/op    -32%          SuRF WINS
-                                                          0 keys scanned
-                                                          no false negatives
-```
-
-**SuRF is 32% faster.**
-
-Bloom cannot answer "is there a key in [X, Y]?" — must open every SSTable,
-check data blocks, conclude nothing found.
-
-SuRF calls `lookupRange(lo, hi)` — trie immediately says false — SSTable
-skipped entirely. No data block reads at all.
-
-0 keys scanned confirms: correct behavior. SuRF never returned true when
-the answer was false (no false negatives). Safety rule preserved.
-
----
-
-## Summary Table — All Key Results
-
-```
-Benchmark               Bloom       SuRF        Winner   Notes
-----------------------  ----------  ----------  -------  ----------------------
-fillrandom (1M)         3.953 µs    4.653 µs    Bloom    +18% overhead expected
-seekrandom (1M)         4.317 µs    10.781 µs   Bloom    RangeMayMatch bypassed
-readrandom (1M)         3.691 µs    5.606 µs    Bloom    point query path
-readseq (1M)            0.213 µs    0.245 µs    Tie      sequential unaffected
-surfscan dense (1M)     1.587 µs    1.607 µs    Tie      block cache absorbs gap
-surfscan empty (1M)     2.102 µs    1.420 µs    SuRF     32% faster ← KEY RESULT
-```
-
----
-
-## Analysis
-
-### When SuRF Wins
-
-SuRF wins when range queries have a **high miss rate** — ranges that contain
-no keys. In this scenario:
-
-- Bloom cannot answer range queries. It opens every SSTable and reads data
-  blocks to verify the range is empty. This is unavoidable.
-- SuRF calls `lookupRange(lo, hi)`. The trie traversal returns false
-  immediately. The SSTable is skipped. No data blocks are read.
-
-The benefit is proportional to the fraction of SSTables that can be skipped.
-With all queries falling outside the key space, every SSTable is skipped.
-
-### When Bloom Wins
-
-Bloom wins on **point queries** and **hit-heavy workloads**:
-
-- Bloom: 2 hash operations, check 2 bits. Nanoseconds per call.
-- SuRF: trie traversal + thread_local cache check. Still faster than
-  per-call deserialization but heavier than Bloom.
-
-For workloads where most range queries find keys (dense data), SuRF provides
-no skipping benefit and its heavier per-call cost makes it slower.
+## Detailed Analysis
 
 ### Why Block Cache Neutralizes the Advantage on Small Datasets
 
-At 1M keys the database is ~62MB. The block cache default is 8MB but scales.
-Once SSTables are warm in cache, `FindTable()` is essentially free (RAM read).
-SuRF can still skip data block reads within the SSTable, but the SSTable
-itself is already open. The advantage is real but smaller than on cold data.
+At 1M keys the database is ~62MB. The block cache default scales with available memory. Once SSTables are warm in cache, `FindTable()` is essentially free (RAM read). SuRF can still skip data block reads within the SSTable, but the SSTable itself is already open. The advantage is real but smaller than on cold data.
 
-The SIGMOD 2018 paper demonstrated SuRF's full advantage on datasets
-**larger than memory** where SSTables must be opened from disk. On a 62MB
-database fitting in an 8GB laptop's cache, the cold-read benefit is limited.
+The SIGMOD 2018 paper demonstrated SuRF's full advantage on datasets **larger than memory** where SSTables must be opened from disk. On a 62MB database fitting in memory, the cold-read benefit is limited.
 
-### db_bench seekrandom Does Not Test SuRF
+### Why db_bench seekrandom Shows SuRF Slower
 
-`seekrandom` calls `db->NewIterator(options)` without setting `options.lo`
-or `options.hi`. The guard `if (!lo.empty() && !hi.empty())` is never true.
-`RangeMayMatch` is never called. The slower seekrandom result for SuRF is
-entirely due to `KeyMayMatch` being heavier than Bloom — not a range filter
-issue. This is a benchmark design issue, not an implementation bug.
+`seekrandom` calls `db->NewIterator(options)` without setting `options.lo` or `options.hi`. The guard `if (!lo.empty() && !hi.empty())` is never true. `RangeMayMatch` is never called. The slower seekrandom result for SuRF is entirely due to `KeyMayMatch` being heavier than Bloom - not a range filter issue. This is a benchmark design issue, not an implementation bug.
 
 ### Correctness Verification
 
 All results show 0 false negatives:
-- surfscan with empty ranges: 0 keys scanned, 0 keys exist → correct
+- surfscan with empty ranges: 0 keys scanned, 0 keys exist -> correct
 - 210/210 tests pass after all changes
 - seekrandom finds same fraction of keys (63%) with Bloom and SuRF
 
@@ -225,7 +89,7 @@ No data was silently dropped. The safety rule held throughout.
 ## Test Results
 
 ```
-After Week 2:  210/210 pass (1 skipped: zstd — expected)
+After Week 2:  210/210 pass (1 skipped: zstd - expected)
 After Week 3:  210/210 pass
 After Week 4:  210/210 pass
 ```

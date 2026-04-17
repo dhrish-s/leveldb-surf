@@ -22,13 +22,13 @@
     than SuRF's trie deserialization. Expected result.
   - readseq: sequential scan. SuRF filter is larger and costlier to load.
     Expected result.
-  - seekrandom: random seeks. SuRF is 25.4% FASTER — SuRF's trie structure
+  - seekrandom: random seeks. SuRF is 25.4% FASTER - SuRF's trie structure
     aids seek navigation even without explicit lo/hi bounds.
   - fillrandom: writes. SuRF trie construction is more expensive than
     Bloom bit-array hashing. Expected result.
 
 
-=== VARIABLE MISS RATE — RANGE SCANS (range_width=10) ===
+=== VARIABLE MISS RATE - RANGE SCANS (range_width=10) ===
 
   Benchmark       Bloom (µs/op)   SuRF (µs/op)   Change      Winner    Keys Scanned
   ------------    -------------   ------------   ---------   ------    ------------
@@ -42,7 +42,7 @@
   1. SuRF advantage emerges at 50% miss rate and grows through 25% miss.
   2. SuRF is fastest relative to Bloom at 25% miss rate (-19.4%).
   3. At 100% miss, both filters are fast (~1.3 µs) because no data blocks
-     are read regardless — the difference is within noise.
+     are read regardless - the difference is within noise.
   4. At 0% miss (all hits), SuRF is still 7.6% faster, indicating the
      SuRF trie aids range iteration even when ranges contain keys.
 
@@ -50,7 +50,7 @@
   When queries land inside the key range, LevelDB must scan data blocks.
   SuRF's compressed trie provides structural information about key
   distribution that helps the iterator navigate more efficiently,
-  whereas Bloom provides no structural information at all — it only
+  whereas Bloom provides no structural information at all - it only
   answers yes/no for exact keys.
 
 
@@ -72,7 +72,7 @@
   fillrandom     2.638           4.078          +54.6%       Bloom
 
   Note: SuRF trie construction during compaction is more expensive than
-  Bloom's bit-array hashing. This is the expected trade-off — SuRF pays
+  Bloom's bit-array hashing. This is the expected trade-off - SuRF pays
   a write-time cost to enable range query filtering at read time.
 
 
@@ -87,7 +87,7 @@
   - Point lookups (readrandom: +215.2%)
   - Sequential reads (readseq: +110.8%)
   - Write throughput (fillrandom: +54.6%)
-  - Pure miss range scans (surfscan100: +5.9% — but both are fast)
+  - Pure miss range scans (surfscan100: +5.9% - but both are fast)
 
   Conclusion:
   The right filter depends on workload. Applications dominated by range

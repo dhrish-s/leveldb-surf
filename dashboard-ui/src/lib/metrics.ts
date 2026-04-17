@@ -7,7 +7,7 @@ export function formatLatency(us: number): string {
 }
 
 export function formatPercent(value: number | null): string {
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined) return '-';
   return `${(value * 100).toFixed(2)}%`;
 }
 

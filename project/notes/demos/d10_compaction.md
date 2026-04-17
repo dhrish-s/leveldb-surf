@@ -1,6 +1,6 @@
 # D10 - Compaction (The Write Path for Your Filter)
 # File: /workspace/project/demos/d10_compaction.cc
-# This is where CreateFilter() runs - your SuRF gets built here in Week 2
+# This is where CreateFilter() runs - the SuRF gets built here in Week 2
 
 ---
 
@@ -11,7 +11,7 @@
 - Why the SSTable landed at Level 2 not Level 0 or Level 1
 - How to read the SSTable listing after compaction
 - Why CreateFilter() is called during compaction - the write path
-- What your SuRFPolicy::CreateFilter() will do here in Week 2
+- What SuRFPolicy::CreateFilter() will do here in Week 2
 
 ---
 
@@ -143,12 +143,12 @@ BuildTable()                     [db/db_impl.cc]
     v
 TableBuilder::Add(key, value)    [table/table_builder.cc]
     For each live key:
-      FilterBlockBuilder::AddKey(key)   <- your filter sees this key
+      FilterBlockBuilder::AddKey(key)   <- the filter sees this key
     |
     v
 TableBuilder::Finish()           [table/table_builder.cc]
     FilterBlockBuilder::Finish()
-      policy_->CreateFilter(all_keys)   <- YOUR SuRFPolicy runs HERE
+      policy_->CreateFilter(all_keys)   <- SuRFPolicy runs HERE
     Writes filter block to SSTable file
     |
     v
@@ -157,7 +157,7 @@ Old SSTable files deleted
 MANIFEST updated
 ```
 
-This is the exact moment your SuRF trie is built.
+This is the exact moment the SuRF trie is built.
 After Week 2: SuRFPolicy::CreateFilter() receives ALL keys
 from the new SSTable and builds the trie.
 
@@ -185,7 +185,7 @@ Librarian (compaction):
 
 The "index card" = the filter block.
 The filter block is built during this sorting process.
-Your SuRFPolicy::CreateFilter() builds that index card.
+SuRFPolicy::CreateFilter() builds that index card.
 
 ---
 
@@ -233,7 +233,7 @@ One SSTable file: 000005.ldb
 Size: 1865 bytes
 Contains: 200 key-value pairs + filter block + index block + footer.
 The filter block inside contains the Bloom filter built by CreateFilter().
-After Week 2: it will contain your SuRF filter instead.
+After Week 2: it will contain the SuRF filter instead.
 
 ### The Stats Table After Compaction
 ```
@@ -314,7 +314,7 @@ After compaction: both are gone from disk entirely.
 
 ## Why This Is Critical for Your Project
 
-When your SuRF filter is built:
+When the SuRF filter is built:
 ```
 CreateFilter(keys, n, dst) called with:
   keys = [key:0, key:1, ..., key:199]  (200 live keys)
@@ -323,7 +323,7 @@ CreateFilter(keys, n, dst) called with:
   n    = 200
   dst  = where to write filter bytes
 
-Your SuRFPolicy::CreateFilter():
+SuRFPolicy::CreateFilter():
   SuRFBuilder builder
   for each key in keys[0..199]:
       builder.insert(key)
@@ -340,8 +340,8 @@ When a range query [key:50, key:60] arrives:
 ```
 
 The compaction output you just saw is the exact moment
-your Week 2 code will run. CreateFilter() is called here.
-The .ldb file that appeared is where your SuRF will live.
+Week 2 code will run. CreateFilter() is called here.
+The .ldb file that appeared is where the SuRF lives.
 
 ---
 

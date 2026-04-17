@@ -175,7 +175,7 @@ struct LEVELDB_EXPORT ReadOptions {
   // SuRF: optional range bounds for range scan filter optimization
   // When lo and hi are set, RangeMayMatch is called on each SSTable
   // to skip SSTables that have no keys in [lo, hi]
-  // Leave empty (default) for normal point queries — no change in behavior
+  // Leave empty (default) for normal point queries - no change in behavior
   Slice lo;
   Slice hi;
 

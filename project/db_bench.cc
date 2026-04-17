@@ -779,12 +779,12 @@ class Benchmark {
       // key range (guaranteed empty = miss) and (100-X)% land inside
       // (likely to find keys = hit).
       //
-      // surfscan / surfscan100 : 100% miss — all queries above key space
-      // surfscan75             :  75% miss — 3/4 queries above key space
-      // surfscan50             :  50% miss — half above, half inside
-      // surfscan25             :  25% miss — 1/4 above, 3/4 inside
-      // surfscan0              :   0% miss — all queries inside key space
-      // surfscan_wide          : 100% miss — wide range (width=100 keys)
+      // surfscan / surfscan100 : 100% miss - all queries above key space
+      // surfscan75             :  75% miss - 3/4 queries above key space
+      // surfscan50             :  50% miss - half above, half inside
+      // surfscan25             :  25% miss - 1/4 above, 3/4 inside
+      // surfscan0              :   0% miss - all queries inside key space
+      // surfscan_wide          : 100% miss - wide range (width=100 keys)
       //
       // SuRF advantage increases with miss rate: higher miss rate means
       // more SSTables can be skipped via RangeMayMatch returning false.
@@ -1221,15 +1221,15 @@ class Benchmark {
   // miss percentage and range width.
   //
   // miss_pct controls what fraction of queries target empty ranges:
-  //   - miss query:  k = FLAGS_num + rand(FLAGS_num)  → above all inserted keys
-  //   - hit query:   k = rand(FLAGS_num)              → inside inserted key range
+  //   - miss query:  k = FLAGS_num + rand(FLAGS_num)  -> above all inserted keys
+  //   - hit query:   k = rand(FLAGS_num)              -> inside inserted key range
   //
   // range_width controls how many keys wide each query range is:
-  //   - narrow (10):  more selective, more likely to miss → benefits SuRF more
+  //   - narrow (10):  more selective, more likely to miss -> benefits SuRF more
   //   - wide (100):   less selective, shows SuRF on broader queries
   //
   // The lo/hi bounds are set in ReadOptions, which activates RangeMayMatch
-  // in AddIterators → TableCache::NewIterator → table->RangeMayMatch(lo, hi).
+  // in AddIterators -> TableCache::NewIterator -> table->RangeMayMatch(lo, hi).
   // Without lo/hi, RangeMayMatch is never called (this is why seekrandom
   // shows no SuRF advantage).
   // ====================================================================
@@ -1246,8 +1246,8 @@ class Benchmark {
     for (int i = 0; i < reads_; i++) {
       int k;
       // SuRF: decide whether this query is a miss (empty range) or hit
-      // miss: query range starts above all inserted keys → guaranteed empty
-      // hit:  query range starts inside inserted key space → likely finds keys
+      // miss: query range starts above all inserted keys -> guaranteed empty
+      // hit:  query range starts inside inserted key space -> likely finds keys
       if (miss_pct >= 100 || (miss_pct > 0 && thread->rand.Uniform(100) < static_cast<unsigned int>(miss_pct))) {
         // Miss: query above all inserted keys (FLAGS_num to 2*FLAGS_num)
         k = FLAGS_num + thread->rand.Uniform(FLAGS_num);
@@ -1262,8 +1262,8 @@ class Benchmark {
       const int hi_k = k + range_width;
       hi_key.Set(hi_k);
 
-      // SuRF: set range bounds — this is what activates RangeMayMatch
-      // in AddIterators → TableCache::NewIterator
+      // SuRF: set range bounds - this is what activates RangeMayMatch
+      // in AddIterators -> TableCache::NewIterator
       options.lo = lo_key.slice();
       options.hi = hi_key.slice();
       MetricsCounters counters;
@@ -1299,35 +1299,35 @@ class Benchmark {
     thread->stats.AddMessage(msg);
   }
 
-  // SuRF: 100% miss rate — all queries above inserted key range
+  // SuRF: 100% miss rate - all queries above inserted key range
   // This is the best case for SuRF: every SSTable can potentially be skipped
   void SuRFRangeScan100(ThreadState* thread) {
     DoSuRFRangeScan(thread, "surfscan100", /*miss_pct=*/100,
                     /*range_width=*/10);
   }
 
-  // SuRF: 75% miss rate — 3 out of 4 queries are empty ranges
+  // SuRF: 75% miss rate - 3 out of 4 queries are empty ranges
   // Realistic for time-series workloads querying recent windows
   void SuRFRangeScan75(ThreadState* thread) {
     DoSuRFRangeScan(thread, "surfscan75", /*miss_pct=*/75,
                     /*range_width=*/10);
   }
 
-  // SuRF: 50% miss rate — half queries empty, half hit keys
+  // SuRF: 50% miss rate - half queries empty, half hit keys
   // Balanced workload showing intermediate SuRF benefit
   void SuRFRangeScan50(ThreadState* thread) {
     DoSuRFRangeScan(thread, "surfscan50", /*miss_pct=*/50,
                     /*range_width=*/10);
   }
 
-  // SuRF: 25% miss rate — most queries find keys, few are empty
+  // SuRF: 25% miss rate - most queries find keys, few are empty
   // SuRF advantage should be small here since most ranges hit data
   void SuRFRangeScan25(ThreadState* thread) {
     DoSuRFRangeScan(thread, "surfscan25", /*miss_pct=*/25,
                     /*range_width=*/10);
   }
 
-  // SuRF: 0% miss rate — all queries inside inserted key range
+  // SuRF: 0% miss rate - all queries inside inserted key range
   // Worst case for SuRF: no SSTables can be skipped, SuRF overhead visible
   void SuRFRangeScan0(ThreadState* thread) {
     DoSuRFRangeScan(thread, "surfscan0", /*miss_pct=*/0,

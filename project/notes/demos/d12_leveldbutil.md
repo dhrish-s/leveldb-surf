@@ -9,8 +9,8 @@
 - How to read the leveldbutil output - key, sequence number, type, value
 - Why leveldbutil expects a .ldb file path not a folder path
 - How to scan a database with an iterator as an alternative
-- How this connects to your Week 2 debugging workflow
-- How to verify your SuRF filter was written correctly
+- How this connects to the Week 2 debugging workflow
+- How to verify the SuRF filter was written correctly
 
 ---
 
@@ -32,7 +32,7 @@ It opens a .ldb file and prints every record inside it in
 human-readable form. Written by the LevelDB authors at Google.
 
 Use cases:
-  Verify your filter was written correctly into the SSTable
+  Verify the filter was written correctly into the SSTable
   Debug compaction issues
   Inspect what keys are in a specific SSTable file
   Check sequence numbers and record types
@@ -201,7 +201,7 @@ But the .ldb file contains more than just keys and values.
     The Bloom filter bit array built by CreateFilter()
     Built during CompactRange() in the setup program
     Used by table.cc line 225 for KeyMayMatch() during Get()
-    AFTER WEEK 2: this will be your SuRF trie instead
+    AFTER WEEK 2: this will be the SuRF trie instead
 
   Index block:
     Maps key ranges to data block byte offsets
@@ -254,7 +254,7 @@ Step 4: Test Get() for existing and missing keys:
 db->Get(ro, existing_key, &value);   // should return OK
 db->Get(ro, missing_key,  &value);   // should return NotFound
 ```
-If an existing key returns NotFound: false negative in your filter = data loss.
+If an existing key returns NotFound: false negative in the filter = data loss.
 Fix this first before anything else.
 
 Step 5: Run all LevelDB tests:
@@ -295,8 +295,8 @@ B9 grep:             You found RangeMayMatch = 0 results
 Week 2:              You add RangeMayMatch to surf_filter.cc
 ```
 
-leveldbutil is the tool that verifies your Week 2 work is correct.
-Run it after compaction to confirm your SuRF filter was built.
+leveldbutil is the tool that verifies Week 2 work is correct.
+Run it after compaction to confirm the SuRF filter was built.
 
 ---
 

@@ -52,7 +52,7 @@ int main() {
         std::cout << "Iterator error: " << it->status().ToString() << "\n";
     }
 
-        // Always delete the iterator — it holds resources
+        // Always delete the iterator - it holds resources
     delete it;
 
     std::cout << "\nTotal keys: " << count << "\n";

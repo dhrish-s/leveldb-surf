@@ -1,10 +1,10 @@
-# D4 — Deleting Keys with Delete()
+# D4 - Deleting Keys with Delete()
 # File: /workspace/project/demos/d04_delete.cc
 
 ---
 
 ## What This Demo Teaches
-- How Delete() works — it does NOT remove data immediately
+- How Delete() works - it does NOT remove data immediately
 - What a tombstone record is
 - Why deleting a non-existent key returns OK (not an error)
 - Why the log file grows after Delete() just like after Put()
@@ -49,11 +49,11 @@ int main() {
     std::cout << "Before delete: animal:bear = " << value << "\n";
 
     s = db->Delete(wo, "animal:bear");
-    std::cout << "Delete animal:bear → " << s.ToString() << "\n";
+    std::cout << "Delete animal:bear -> " << s.ToString() << "\n";
 
     s = db->Get(ro, "animal:bear", &value);
     if (s.IsNotFound()) {
-        std::cout << "After delete: animal:bear → NotFound\n";
+        std::cout << "After delete: animal:bear -> NotFound\n";
         std::cout << "  Tombstone hides the value\n";
         std::cout << "  Old bytes still on disk until compaction\n\n";
     }
@@ -62,7 +62,7 @@ int main() {
     std::cout << "animal:cat still exists: " << value << "\n";
 
     s = db->Delete(wo, "animal:zebra");
-    std::cout << "\nDelete animal:zebra (never existed) → "
+    std::cout << "\nDelete animal:zebra (never existed) -> "
               << s.ToString() << "\n";
     std::cout << "Deleting non-existent key = OK, not an error\n";
 
@@ -76,7 +76,7 @@ int main() {
 
 ---
 
-## The Delete() Method — Parameters
+## The Delete() Method - Parameters
 
 ```cpp
 s = db->Delete(wo, "animal:bear");
@@ -86,7 +86,7 @@ Parameter 1: wo (WriteOptions)
   Exact same WriteOptions as Put().
   wo.sync = false means tombstone goes to OS buffer first (fast).
   wo.sync = true means fsync() after write (safe, slow).
-  Delete is treated exactly like a write — same options, same WAL path.
+  Delete is treated exactly like a write - same options, same WAL path.
 
 Parameter 2: "animal:bear" (const char* converted to Slice)
   The key to mark as deleted.
@@ -109,11 +109,11 @@ Original files this connects to:
 ### Nothing New in C++
 D4 uses exactly the same C++ as D1-D3.
 The learning here is all about LevelDB behaviour, not C++ syntax.
-This is intentional — the concept of tombstones is the key insight.
+This is intentional - the concept of tombstones is the key insight.
 
 ---
 
-## The Tombstone — The Most Important Concept in D4
+## The Tombstone - The Most Important Concept in D4
 
 Imagine a library book catalogue. When a book is removed from the library,
 the librarian does NOT erase the card. Instead they stamp it "REMOVED."
@@ -130,11 +130,11 @@ db->Delete(wo, "animal:bear")
 Append to WAL (000003.log):
     Record type: kTypeDeletion   <- special type byte, not kTypeValue
     Key: "animal:bear"
-    (no value field — tombstones have no value)
+    (no value field - tombstones have no value)
     |
     v
 Add to MemTable:
-    "animal:bear" → [TOMBSTONE]
+    "animal:bear" -> [TOMBSTONE]
     |
     v
 Delete() returns OK immediately
@@ -147,7 +147,7 @@ When Get("animal:bear") is called later:
 
 During compaction (background cleanup):
     Merges old value + tombstone
-    Both get thrown away — neither written to new SSTable
+    Both get thrown away - neither written to new SSTable
     This is when data is actually removed from disk
 ```
 
@@ -167,7 +167,7 @@ Checking would require:
   1. Looking through the MemTable
   2. Possibly opening SSTables
   3. Running Bloom filter checks
-  That is expensive — potentially a full disk read.
+  That is expensive - potentially a full disk read.
 
 Instead LevelDB just writes a tombstone and returns OK immediately.
 If the key never existed, the tombstone sits in the MemTable doing nothing.
@@ -191,12 +191,12 @@ Before delete: animal:bear = Large omnivore
 Get() found the key before deletion. Confirmed it exists.
 
 ```
-Delete animal:bear → OK
+Delete animal:bear -> OK
 ```
 Tombstone written to WAL and MemTable. NOT physically removed.
 
 ```
-After delete: animal:bear → NotFound
+After delete: animal:bear -> NotFound
   Tombstone hides the value
   Old bytes still on disk until compaction
 ```
@@ -210,7 +210,7 @@ animal:cat still exists: Domestic feline
 Delete is precise. Only bear was deleted. cat and dog untouched.
 
 ```
-Delete animal:zebra (never existed) → OK
+Delete animal:zebra (never existed) -> OK
 Deleting non-existent key = OK, not an error
 ```
 Tombstone written for zebra even though it was never Put().
@@ -229,9 +229,9 @@ Log grew because Delete() appends to WAL exactly like Put().
 
 ```
 000003.log contains 5 records:
-  Record 1: kTypeValue   "animal:bear" → "Large omnivore"
-  Record 2: kTypeValue   "animal:cat"  → "Domestic feline"
-  Record 3: kTypeValue   "animal:dog"  → "Domestic canine"
+  Record 1: kTypeValue   "animal:bear" -> "Large omnivore"
+  Record 2: kTypeValue   "animal:cat"  -> "Domestic feline"
+  Record 3: kTypeValue   "animal:dog"  -> "Domestic canine"
   Record 4: kTypeDeletion "animal:bear" (tombstone, no value)
   Record 5: kTypeDeletion "animal:zebra" (tombstone, no value)
 
@@ -244,12 +244,12 @@ If process crashes right now and restarts:
 
 ---
 
-## LevelDB Is Append-Only — The Core Design
+## LevelDB Is Append-Only - The Core Design
 
 ```
-Put()    → append kTypeValue record to WAL + MemTable
-Delete() → append kTypeDeletion record to WAL + MemTable
-Update() → does not exist. Just Put() a new value.
+Put()    -> append kTypeValue record to WAL + MemTable
+Delete() -> append kTypeDeletion record to WAL + MemTable
+Update() -> does not exist. Just Put() a new value.
            New value and old value coexist until compaction.
 
 Nothing is ever modified in place.
@@ -265,7 +265,7 @@ Trade-off: reads must check for tombstones.
 
 ## Connection to Your Project
 
-During compaction — when your SuRF filter is built:
+During compaction - when the SuRF filter is built:
 ```
 DoCompactionWork()
   merges old value + tombstone
@@ -274,9 +274,9 @@ DoCompactionWork()
   CreateFilter() called with only LIVE keys
 ```
 
-Your SuRFPolicy::CreateFilter() receives only the current live keys —
-deleted keys are already filtered out by compaction before your code runs.
-You never need to handle tombstones in your filter implementation.
+SuRFPolicy::CreateFilter() receives only the current live keys -
+deleted keys are already filtered out by compaction before this code runs.
+Tombstones do not need to be handled in the filter implementation.
 
 ---
 

@@ -66,7 +66,7 @@ function start() {
   loadMetrics();
 
   app.listen(PORT, () => {
-    console.log(`\n📊 LevelDB Metrics Server running on http://localhost:${PORT}`);
+    console.log(`\n LevelDB Metrics Server running on http://localhost:${PORT}`);
     console.log('   Dashboard UI should connect to http://localhost:5173');
     console.log(`   Metrics file(s): ${Object.values(state.sources).map((src) => src.filePath).join(', ') || 'none'}\n`);
   });

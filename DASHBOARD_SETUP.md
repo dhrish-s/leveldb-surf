@@ -101,7 +101,7 @@ The frontend will display:
 
 Assume all commands are run from the repository root directory.
 
-### Terminal 1 — inside container
+### Terminal 1 - inside container
 - Start in repo root on host machine:
   ```bash
   cd <repo-root>
@@ -135,7 +135,7 @@ Assume all commands are run from the repository root directory.
   ls /workspace/metrics
   ```
 
-### Terminal 2 — backend outside Docker
+### Terminal 2 - backend outside Docker
 - Go to repo root on host machine:
   ```bash
   cd <repo-root>
@@ -156,7 +156,7 @@ Assume all commands are run from the repository root directory.
   npm start
   ```
 
-### Terminal 3 — frontend outside Docker
+### Terminal 3 - frontend outside Docker
 - Go to repo root on host machine:
   ```bash
   cd <repo-root>
