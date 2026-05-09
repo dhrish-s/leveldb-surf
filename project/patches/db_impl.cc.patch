@@ -1,0 +1,17 @@
+diff --git a/db/db_impl.cc b/project/db_impl.cc
+index ce4ef82..732be02 100644
+--- a/db/db_impl.cc
++++ b/project/db_impl.cc
+@@ -1094,7 +1094,11 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
+     list.push_back(imm_->NewIterator());
+     imm_->Ref();
+   }
+-  versions_->current()->AddIterators(options, &list);
++  //added for SuRF
++  // SuRF: pass lo/hi from ReadOptions to enable RangeMayMatch filtering
++  // If options.lo and options.hi are empty (default), behavior is unchanged
++  // If set by caller (e.g. surfscan benchmark), SuRF skips SSTables outside range
++  versions_->current()->AddIterators(options, &list, options.lo, options.hi);
+   Iterator* internal_iter =
+       NewMergingIterator(&internal_comparator_, &list[0], list.size());
+   versions_->current()->Ref();

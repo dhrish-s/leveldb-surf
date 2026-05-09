@@ -1,0 +1,26 @@
+diff --git a/include/leveldb/table.h b/project/table.h
+old mode 100644
+new mode 100755
+index a30e903..7663a3f
+--- a/include/leveldb/table.h
++++ b/project/table.h
+@@ -10,6 +10,7 @@
+ #include "leveldb/export.h"
+ #include "leveldb/iterator.h"
+ 
++
+ namespace leveldb {
+ 
+ class Block;
+@@ -57,8 +58,9 @@ class LEVELDB_EXPORT Table {
+   // E.g., the approximate offset of the last key in the table will
+   // be close to the file length.
+   uint64_t ApproximateOffsetOf(const Slice& key) const;
+-
+- private:
++  bool RangeMayMatch(const Slice& lo, const Slice& hi) const; // added for SuRF - added lo and hi key to support range query
++ 
++  private:
+   friend class TableCache;
+   struct Rep;
+ 

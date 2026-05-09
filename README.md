@@ -8,6 +8,8 @@
 
 ---
 
+![leveldb-surf dashboard](dashboard.png)
+
 ## Quick Start (End-to-End)
 
 This section guides you through generating benchmark metrics, starting the backend and frontend, and viewing the observability dashboard.

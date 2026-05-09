@@ -1,0 +1,125 @@
+diff --git a/project/surf_filter.cc b/project/surf_filter.cc
+new file mode 100755
+index 0000000..e615a69
+--- /dev/null
++++ b/project/surf_filter.cc
+@@ -0,0 +1,119 @@
++// util/surf_filter.cc
++// Week 2: SuRF-based filter policy that replaces the Bloom filter
++
++#include "leveldb/filter_policy.h"
++#include "leveldb/slice.h"
++#include "surf/surf.hpp" // SuRF headers were copied into include/surf/
++
++#include <string>
++#include <vector>
++
++namespace leveldb {
++    namespace {
++        class SuRFPolicy : public FilterPolicy {
++            public:
++            ~SuRFPolicy() override = default;
++
++            // ----------------------------------
++            // Name()
++            // Stored inside the metaindex block of every SSTable
++            // On read, LevelDB looks for "filter." + Name().
++            // If it does not match, then the filter is ignored, so this SHOULD NOT be changed
++            const char* Name() const override {
++                return "leveldb.SuRFFilter";
++            }
++
++
++            // -------------------------------------------
++            // CreateFilter()
++            // Called once per SSTable during compaction, all keys arrive here together instead of every 2KB
++            // keys[0..n-1] are sorted keys (InternalFilterPolicy has stripped the 8-byte internal suffix already)
++            // Append the serialized SuRF bytes to *dst
++            void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
++                if (n == 0) return; // safe fallback so SuRF's constructor doesnt crash or produce meaningless trie
++
++                // TODO: convert keys to the format SuRF expects
++                std::vector<std::string> key_strs;
++                key_strs.reserve(n);
++                for(int i = 0; i < n; i++) {
++                    key_strs.push_back(keys[i].ToString());
++                }
++
++                // TODO: construct SuRF from key_strs
++                surf::SuRF leveldb_surf(key_strs);
++
++                // TODO: serialize surf into dst
++                // (check surf.hpp for the serialize API)
++                auto key_bytes = leveldb_surf.serialize();
++                // char* key_bytes = lelveldb_surf.serialize(); // explicit mention of char* to clarify that serialize returns a pointer to bytes
++                // unit64_tkey_len = leveldb_surf.serializedSize(); // get the length of the serialized bytes
++                auto key_len = leveldb_surf.serializedSize();
++                dst->append(key_bytes, key_len);
++                delete[] key_bytes; // prevent memory leaks
++            }
++
++
++            // --------------------------------------------
++            // KeyMayMatch()
++            // returns false  ---> key is DEFINITELY absent (must be correct)
++            // returns true   ---> key might be present     (false positives OK)
++            //
++            // safety: if deserialization fails, return true (safety fallback)
++            bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
++                if (filter.empty()) return true;
++                // thread_local cache: avoid re-deserializing SuRF for the same SSTable
++                // When the same SSTable is queried repeatedly, filter.data() is the same
++                // pointer - reuse the cached SuRF object instead of rebuilding each call
++                thread_local const char* last_filter_ptr = nullptr;
++                thread_local surf::SuRF* cached_surf = nullptr;
++
++                if (filter.data() != last_filter_ptr) {
++                    // Different SSTable - rebuild the cache
++                    if (cached_surf != nullptr) {
++                        cached_surf->destroy();
++                        delete cached_surf;
++                        cached_surf = nullptr;
++                    }
++                    std::string buf(filter.data(), filter.size());
++                    char* src = &buf[0];
++                    cached_surf = surf::SuRF::deSerialize(src);
++                    last_filter_ptr = filter.data();
++                }
++                return cached_surf->lookupKey(key.ToString());
++            }
++
++
++            // --------------------------------------------
++            // RangeMayMatch() --> NEW METHOD
++            // returns false  ---> NO key exists in [lo, hi] (must be correct)
++            // returns true   ---> some key might be present (false positives OK)
++            //
++            // safety: if deserialization fails, return true (safety fallback)
++            bool RangeMayMatch(const Slice& lo, const Slice& hi,
++                            const Slice& filter) const override {
++                if (filter.empty()) return true;
++                // thread_local cache: same pattern as KeyMayMatch
++                thread_local const char* last_filter_ptr = nullptr;
++                thread_local surf::SuRF* cached_surf = nullptr;
++
++                if (filter.data() != last_filter_ptr) {
++                    if (cached_surf != nullptr) {
++                        cached_surf->destroy();
++                        delete cached_surf;
++                        cached_surf = nullptr;
++                    }
++                    std::string buf(filter.data(), filter.size());
++                    char* src = &buf[0];
++                    cached_surf = surf::SuRF::deSerialize(src);
++                    last_filter_ptr = filter.data();
++                }
++                return cached_surf->lookupRange(lo.ToString(), true, hi.ToString(), true);
++            }
++        };
++    } // namespace
++
++    // Factory function - used in db_bench.cc (Week 4) and tests
++    const FilterPolicy* NewSuRFFilterPolicy() {
++        return new SuRFPolicy();
++    }
++} // namespace leveldb

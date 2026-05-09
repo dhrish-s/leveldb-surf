@@ -1,0 +1,24 @@
+diff --git a/include/leveldb/filter_policy.h b/project/filter_policy.h
+index 49c8eda..f93bb70 100644
+--- a/include/leveldb/filter_policy.h
++++ b/project/filter_policy.h
+@@ -49,6 +49,10 @@ class LEVELDB_EXPORT FilterPolicy {
+   // This method may return true or false if the key was not on the
+   // list, but it should aim to return false with a high probability.
+   virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const = 0;
++
++  // Returns false if no key in [lo, hi] exists in the filter.
++  // Default returns true (safe fallback for filters that don't support ranges)
++  virtual bool RangeMayMatch(const Slice& lo, const Slice& hi, const Slice& filter) const { return true; }
+ };
+ 
+ // Return a new filter policy that uses a bloom filter with approximately
+@@ -66,6 +70,8 @@ class LEVELDB_EXPORT FilterPolicy {
+ // FilterPolicy (like NewBloomFilterPolicy) that does not ignore
+ // trailing spaces in keys.
+ LEVELDB_EXPORT const FilterPolicy* NewBloomFilterPolicy(int bits_per_key);
++// SuRF filter policy added
++LEVELDB_EXPORT const FilterPolicy* NewSuRFFilterPolicy();
+ 
+ }  // namespace leveldb
+ 

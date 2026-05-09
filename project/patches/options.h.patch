@@ -1,0 +1,46 @@
+diff --git a/include/leveldb/options.h b/project/options.h
+old mode 100644
+new mode 100755
+index d755f46..ce23c9c
+--- a/include/leveldb/options.h
++++ b/project/options.h
+@@ -8,6 +8,7 @@
+ #include <cstddef>
+ 
+ #include "leveldb/export.h"
++# include "leveldb/slice.h"
+ 
+ namespace leveldb {
+ 
+@@ -147,6 +148,13 @@ struct LEVELDB_EXPORT Options {
+   const FilterPolicy* filter_policy = nullptr;
+ };
+ 
++// Metrics counters for benchmarking filter performance
++struct MetricsCounters {
++  int considered = 0;
++  int pruned = 0;
++  int opened = 0;
++};
++
+ // Options that control read operations
+ struct LEVELDB_EXPORT ReadOptions {
+   // If true, all data read from underlying storage will be
+@@ -162,6 +170,17 @@ struct LEVELDB_EXPORT ReadOptions {
+   // not have been released).  If "snapshot" is null, use an implicit
+   // snapshot of the state at the beginning of this read operation.
+   const Snapshot* snapshot = nullptr;
++
++  //added for SuRF
++  // SuRF: optional range bounds for range scan filter optimization
++  // When lo and hi are set, RangeMayMatch is called on each SSTable
++  // to skip SSTables that have no keys in [lo, hi]
++  // Leave empty (default) for normal point queries — no change in behavior
++  Slice lo;
++  Slice hi;
++
++  // Optional metrics counters for benchmarking
++  MetricsCounters* metrics_counters = nullptr;
+ };
+ 
+ // Options that control write operations

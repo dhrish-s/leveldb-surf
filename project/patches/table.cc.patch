@@ -1,0 +1,63 @@
+diff --git a/table/table.cc b/project/table.cc
+old mode 100644
+new mode 100755
+index 29e835f..5930ce1
+--- a/table/table.cc
++++ b/project/table.cc
+@@ -15,6 +15,7 @@
+ #include "table/two_level_iterator.h"
+ #include "util/coding.h"
+ 
++
+ namespace leveldb {
+ 
+ struct Table::Rep {
+@@ -31,6 +32,9 @@ struct Table::Rep {
+   FilterBlockReader* filter;
+   const char* filter_data;
+ 
++
++
++
+   BlockHandle metaindex_handle;  // Handle to metaindex_block: saved from footer
+   Block* index_block;
+ };
+@@ -72,6 +76,7 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
+     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
+     rep->filter_data = nullptr;
+     rep->filter = nullptr;
++
+     *table = new Table(rep);
+     (*table)->ReadMeta(footer);
+   }
+@@ -223,8 +228,16 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
+     BlockHandle handle;
+     if (filter != nullptr && handle.DecodeFrom(&handle_value).ok() &&
+         !filter->KeyMayMatch(handle.offset(), k)) {
++      if (options.metrics_counters) {
++        options.metrics_counters->considered++;
++        options.metrics_counters->pruned++;
++      }
+       // Not found
+     } else {
++      if (options.metrics_counters) {
++        options.metrics_counters->considered++;
++        options.metrics_counters->opened++;
++      }
+       Iterator* block_iter = BlockReader(this, options, iiter->value());
+       block_iter->Seek(k);
+       if (block_iter->Valid()) {
+@@ -268,4 +281,13 @@ uint64_t Table::ApproximateOffsetOf(const Slice& key) const {
+   return result;
+ }
+ 
++bool Table::RangeMayMatch(const Slice& lo, const Slice& hi) const
++{
++  // Check if the filter may match any key in the range [lo, hi]
++  // This is a conservative check: it may return true even if there are no keys in
++  // the range, but it will never return false if there is a key in the range.
++  if (rep_->filter == nullptr) return true;
++  return rep_->filter->RangeMayMatch(lo, hi);
++}
++
+ }  // namespace leveldb

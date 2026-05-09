@@ -1,0 +1,24 @@
+diff --git a/db/version_set.h b/project/version_set.h
+old mode 100644
+new mode 100755
+index ea0c925..0c8b479
+--- a/db/version_set.h
++++ b/project/version_set.h
+@@ -67,7 +67,7 @@ class Version {
+   // Append to *iters a sequence of iterators that will
+   // yield the contents of this Version when merged together.
+   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+-  void AddIterators(const ReadOptions&, std::vector<Iterator*>* iters);
++  void AddIterators(const ReadOptions&, std::vector<Iterator*>* iter, const Slice& lo = Slice(), const Slice& hi = Slice());
+ 
+   // Lookup the value for key.  If found, store it in *val and
+   // return OK.  Else return a non-OK status.  Fills *stats.
+@@ -135,7 +135,7 @@ class Version {
+ 
+   ~Version();
+ 
+-  Iterator* NewConcatenatingIterator(const ReadOptions&, int level) const;
++  Iterator* NewConcatenatingIterator(const ReadOptions&, int level, const Slice& lo = Slice(), const Slice& hi = Slice()) const;
+ 
+   // Call func(arg, level, f) for every file that overlaps user_key in
+   // order from newest to oldest.  If an invocation of func returns

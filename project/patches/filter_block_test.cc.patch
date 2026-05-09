@@ -1,0 +1,63 @@
+diff --git a/table/filter_block_test.cc b/project/filter_block_test.cc
+old mode 100644
+new mode 100755
+index 3ee41cf..86b9981
+--- a/table/filter_block_test.cc
++++ b/project/filter_block_test.cc
+@@ -71,6 +71,7 @@ TEST_F(FilterBlockTest, SingleChunk) {
+   ASSERT_TRUE(!reader.KeyMayMatch(100, "other"));
+ }
+ 
++// added and changed fro SuRF
+ TEST_F(FilterBlockTest, MultiChunk) {
+   FilterBlockBuilder builder(&policy_);
+ 
+@@ -94,29 +95,31 @@ TEST_F(FilterBlockTest, MultiChunk) {
+   Slice block = builder.Finish();
+   FilterBlockReader reader(&policy_, block);
+ 
+-  // Check first filter
++  // With single-filter-per-SSTable, ALL keys are visible from ALL block offsets
++  // Keys that exist anywhere in the SSTable: foo, bar, box, hello
++
++  // foo and bar are in the SSTable - visible from any offset
+   ASSERT_TRUE(reader.KeyMayMatch(0, "foo"));
+-  ASSERT_TRUE(reader.KeyMayMatch(2000, "bar"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(0, "box"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(0, "hello"));
++  ASSERT_TRUE(reader.KeyMayMatch(0, "bar"));
++  ASSERT_TRUE(reader.KeyMayMatch(0, "box"));
++  ASSERT_TRUE(reader.KeyMayMatch(0, "hello"));
+ 
+-  // Check second filter
++  // Same keys visible from any other offset
++  ASSERT_TRUE(reader.KeyMayMatch(3100, "foo"));
++  ASSERT_TRUE(reader.KeyMayMatch(3100, "bar"));
+   ASSERT_TRUE(reader.KeyMayMatch(3100, "box"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(3100, "foo"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(3100, "bar"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(3100, "hello"));
+-
+-  // Check third filter (empty)
+-  ASSERT_TRUE(!reader.KeyMayMatch(4100, "foo"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(4100, "bar"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(4100, "box"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(4100, "hello"));
++  ASSERT_TRUE(reader.KeyMayMatch(3100, "hello"));
+ 
+-  // Check last filter
++  ASSERT_TRUE(reader.KeyMayMatch(9000, "foo"));
++  ASSERT_TRUE(reader.KeyMayMatch(9000, "bar"));
+   ASSERT_TRUE(reader.KeyMayMatch(9000, "box"));
+   ASSERT_TRUE(reader.KeyMayMatch(9000, "hello"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(9000, "foo"));
+-  ASSERT_TRUE(!reader.KeyMayMatch(9000, "bar"));
++
++  // Keys that never existed return false from any offset
++  ASSERT_TRUE(!reader.KeyMayMatch(0, "missing"));
++  ASSERT_TRUE(!reader.KeyMayMatch(0, "other"));
++  ASSERT_TRUE(!reader.KeyMayMatch(3100, "missing"));
++  ASSERT_TRUE(!reader.KeyMayMatch(9000, "missing"));
+ }
+ 
+ }  // namespace leveldb
